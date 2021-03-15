@@ -1,125 +1,277 @@
 package g2cache
 
 import (
-	"github.com/gomodule/redigo/redis"
-	"github.com/json-iterator/go"
-	"github.com/mohae/deepcopy"
+	jsoniter "github.com/json-iterator/go"
 	"log"
-	"time"
+	"sync"
 )
 
+// The value can be changed by external assignment
+// It does not need to be too large, only one area needs to be locked, and it is very suitable if there are not many concurrent keys.
 const (
-	lazyFactor    = 256
-	delKeyChannel = "g2cache-delete"
-	gcTtl         = 5 * time.Second
+	defaultShards         = 256
+	defaultShardsAndOpVal = 255
+)
+
+var (
+	CacheDebug bool
 )
 
 type G2Cache struct {
-	pool  *redis.Pool
-	rds   *RedisCache
-	mem   *MemCache
-	debug bool
+	out      OutCache
+	local    LocalCache
+	shards   [defaultShards]sync.Mutex
+	hash     Harsher
+	stop     chan struct{}
+	stopOnce sync.Once
+	channel  chan *ChannelMeta
 }
 
-type LoadFunc func() (interface{}, error)
+// Shouldn't throw a panic, please return an error
+type LoadDataSourceFunc func() (interface{}, error)
 
-var json = jsoniter.ConfigCompatibleWithStandardLibrary
+func New(out OutCache, local LocalCache) *G2Cache {
+	g := &G2Cache{
+		hash:    new(fnv64a),
+		stop:    make(chan struct{}, 1),
+		channel: make(chan *ChannelMeta, defaultShards),
+	}
+	if local == nil {
+		local = NewFreeCache()
+	}
+	if out == nil {
+		out = NewRedisCache(local)
+	}
+	g.local = local
+	g.out = out
 
-func New(redisDsn, redisPwd string, db,maxConn int) *G2Cache {
-	g := &G2Cache{}
-	g.mem = NewMemCache(gcTtl)
-	g.pool = GetRedisPool(redisDsn, redisPwd, db,maxConn)
-	g.rds = NewRedisCache(g.pool, g.mem)
-
-	go g.subscribe(delKeyChannel)
+	go g.Subscribe()
 
 	return g
 }
 
-func (g *G2Cache) Get(key string, obj interface{}, ttl int, fn LoadFunc) error {
-	if g.debug {
-		ttl = 1
+func (g *G2Cache) Get(key string, ttl int, fn LoadDataSourceFunc) (interface{}, error) {
+	select {
+	case <-g.stop:
+		return nil, CacheClose
+	default:
 	}
-	return g.getObjectWithExprie(key, obj, ttl, fn)
+	return g.get(key, ttl, fn)
 }
 
-func (g *G2Cache) getObjectWithExprie(key string, obj interface{}, ttl int, fn LoadFunc) error {
-	v, ok := g.mem.Get(key)
+func (g *G2Cache) get(key string, ttl int, fn LoadDataSourceFunc) (interface{}, error) {
+	v, ok, err := g.local.Get(key)
+	if err != nil {
+		return nil, err
+	}
 	if ok {
-		if v.OutDated() {
-			c := deepcopy.Copy(obj)
+		if CacheDebug {
+			log.Printf("key:%-20s ==>hit local storage\n",key)
+		}
+		if v.Obsoleted() {
 			go func() {
-				err := g.syncMemCache(key, c, ttl, fn)
+				err := g.syncLocalCache(key, ttl, fn)
 				if err != nil {
-					log.Printf("syncMemCache key=%v,err=%v",key,err)
+					log.Printf("syncMemCache key=%v,err=%v", key, err)
 				}
 			}()
 		}
-		return clone(v.Value, obj)
+		return jsoniter.MarshalToString(v.Value)
+	}
+	v, ok, err = g.out.Get(key)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		if CacheDebug {
+			log.Printf("key:%-20s ==>hit out storage\n",key)
+		}
+		err = g.local.Set(key, v)
+		return jsoniter.MarshalToString(v.Value)
 	}
 
-	v, ok = g.rds.Get(key, obj)
-	if ok {
-		if v.OutDated() {
-			go func() {
-				err:=  g.rds.load(key, nil, ttl, fn, false)
-				if err != nil {
-					log.Printf("rds load key=%v,err=%v",key,err)
-				}
-			}()
-		}
-		return clone(v.Value, obj)
+	// 从数据源加载
+	idx := g.hash.Sum64(key)
+	g.shards[idx&defaultShardsAndOpVal].Lock()
+	defer g.shards[idx&defaultShardsAndOpVal].Unlock()
+
+	if CacheDebug {
+		log.Printf("key:%-20s ==>hit data source\n",key)
 	}
-	return g.rds.load(key, obj, ttl, fn, true)
+	o, err := fn()
+	if err != nil {
+		return nil, err
+	}
+	e := NewEntry(o, ttl)
+	err = g.local.Set(key, e)
+	if err != nil {
+		return nil, err
+	}
+
+	go func() {
+		err = g.out.Set(key, e)
+		if err != nil {
+			log.Printf("syncMemCache key=%v,val=%+v,,err=%v", key, e, err)
+		}
+	}()
+
+	return jsoniter.MarshalToString(o)
 }
 
-func (g *G2Cache) syncMemCache(key string, copy interface{}, ttl int, fn LoadFunc) error {
-	e, ok := g.rds.Get(key, copy)
-	if !ok || e.OutDated() {
-		if err := g.rds.load(key, nil, ttl, fn, false); err != nil {
+func (g *G2Cache) Set(key string, obj interface{}, ttl int, wait bool) (err error) {
+	select {
+	case <-g.stop:
+		return CacheClose
+	default:
+	}
+	return g.set(key, obj, ttl, wait)
+}
+
+func (g *G2Cache) set(key string, obj interface{}, ttl int, wait bool) (err error) {
+	v := NewEntry(obj, ttl)
+	err = g.local.Set(key, v)
+	if err != nil {
+		return err
+	}
+	if wait {
+		err = g.out.Publish(key, SetPublishType, v)
+		return err
+	}
+
+	go func() {
+		_ = g.out.Publish(key, SetPublishType, v)
+	}()
+
+	return err
+}
+
+func (g *G2Cache) syncLocalCache(key string, ttl int, fn LoadDataSourceFunc) error {
+	e, ok, err := g.out.Get(key)
+	if err != nil {
+		return err
+	}
+	if !ok || e == nil || e.Expired() {
+		// 从fn里面加载数据
+		idx := g.hash.Sum64(key)
+		g.shards[idx&defaultShardsAndOpVal].Lock()
+		defer g.shards[idx&defaultShardsAndOpVal].Unlock()
+		v, err := fn()
+		if err != nil {
 			return err
 		}
+		if v == nil {
+			return nil
+		}
+		e = NewEntry(v, ttl)
+		err = g.out.Set(key, e)
+		err = g.local.Set(key, e)
+		return err
 	}
-	g.mem.Set(key, e)
+	err = g.local.Set(key, e)
+	err = g.out.Set(key, e)
+	return err
+}
+
+func (g *G2Cache) Del(key string, wait bool) (err error) {
+	select {
+	case <-g.stop:
+		return CacheClose
+	default:
+	}
+	return g.del(key, wait)
+}
+
+func (g *G2Cache) del(key string, wait bool) (err error) {
+	err = g.local.Del(key)
+
+	if wait {
+		err = g.out.Publish(key, DelPublishType, nil)
+		return err
+	}
+	go func() {
+		_ = g.out.Publish(key, DelPublishType, nil)
+	}()
+
 	return nil
 }
 
-func (g *G2Cache) EnableDebug() {
-	g.debug = true
-	g.mem.StopScan()
-	g.mem.SetCleanInterval(2 * time.Second)
-	g.mem.StopScan()
+func (g *G2Cache) Subscribe() error {
+	select {
+	case <-g.stop:
+		return CacheClose
+	default:
+	}
+	return g.subscribe()
 }
 
-func (g *G2Cache) Del(key string) error {
-	return RedisPublish(delKeyChannel, key, g.pool)
-}
-
-func (g *G2Cache) delete(key string) error {
-	g.mem.Del(key)
-	return g.rds.Del(key)
-}
-
-func (g *G2Cache) subscribe(key string) {
-	conn := g.pool.Get()
-	defer conn.Close()
-
-	psc := redis.PubSubConn{Conn: conn}
-	if err := psc.Subscribe(key); err != nil {
-		log.Printf("rds subscribe key=%v, err=%v\n", key, err)
-		return
+func (g *G2Cache) subscribe() error {
+	err := g.out.Subscribe(g.channel)
+	if err != nil {
+		return err
 	}
 
-	for {
-		switch v := psc.Receive().(type) {
-		case redis.Message:
-			key := string(v.Data)
-			if err := g.delete(key); err != nil {
-				log.Printf("rds del key=%v, err=%v\n", key, err)
+	go func() {
+		for meta := range g.channel {
+			select {
+			case <-g.stop:
+				return
+			default:
 			}
-		case error:
-			log.Printf("rds receive err, msg=%v\n",v)
-			continue
+			key := meta.Key
+			switch meta.Action {
+			case DelPublishType:
+				if err := g.local.Del(key); err != nil {
+					log.Printf("local del key=%v, err=%v\n", key, err)
+				}
+				if err = g.out.Del(key); err != nil {
+					log.Printf("rds del key=%v, err=%v\n", key, err)
+				}
+			case SetPublishType:
+				if err = g.local.Set(meta.Key, meta.Data); err != nil {
+					log.Printf("local set key=%v,val=%+v, err=%v\n", key, *meta.Data, err)
+				}
+				if err = g.out.Set(key, meta.Data); err != nil {
+					log.Printf("rds set key=%v,val=%v, err=%v\n", key, *meta.Data, err)
+				}
+			default:
+				continue
+			}
 		}
+	}()
+
+	return nil
+}
+
+func (g *G2Cache) close() {
+	close(g.stop)
+	g.out.Close()
+	g.local.Close()
+}
+
+func (g *G2Cache) Close() {
+	g.stopOnce.Do(g.close)
+}
+
+type Harsher interface {
+	Sum64(string) uint64
+}
+
+type fnv64a struct{}
+
+const (
+	// offset64 FNVa offset basis. See https://en.wikipedia.org/wiki/Fowler–Noll–Vo_hash_function#FNV-1a_hash
+	offset64 = 14695981039346656037
+	// prime64 FNVa prime value. See https://en.wikipedia.org/wiki/Fowler–Noll–Vo_hash_function#FNV-1a_hash
+	prime64 = 1099511628211
+)
+
+// Sum64 gets the string and returns its uint64 hash value.
+func (f fnv64a) Sum64(key string) uint64 {
+	var hash uint64 = offset64
+	for i := 0; i < len(key); i++ {
+		hash ^= uint64(key[i])
+		hash *= prime64
 	}
+
+	return hash
 }

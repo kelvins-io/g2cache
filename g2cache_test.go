@@ -1,30 +1,167 @@
 package g2cache
 
 import (
+	"fmt"
 	"testing"
+	"time"
 )
 
 type Object struct {
-	Value string
+	ID      int      `json:"id"`
+	Value   string   `json:"value"`
+	Address []string `json:"address"`
+	Car     *Car     `json:"car"`
+}
+
+type Car struct {
+	Name  string  `json:"name"`
+	Price float64 `json:"price"`
 }
 
 func (o *Object) DeepCopy() interface{} {
 	return &(*o)
 }
 
+func TestG2Cache_Get(t *testing.T) {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 20
+	g2 := New(nil, nil)
+	defer g2.Close()
+	key := GenKey("g2cache-key", 1)
+	o, err := g2.Get(key, 5, func() (interface{}, error) {
+		time.Sleep(1 * time.Second)
+		return &Object{
+			ID:      1,
+			Value:   "😄",
+			Address: []string{"test get 未来星球🌲✨"},
+			Car: &Car{
+				Name:  "概念🚗，✈，🚚️",
+				Price: float64(1) / 100,
+			},
+		}, nil
+	})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(o)
+}
+
+func TestG2Cache_Set(t *testing.T) {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 1
+	g2 := New(nil, nil)
+	defer g2.Close()
+	key := GenKey("g2cache-key", 1)
+	var o = Object{
+		ID:      1,
+		Value:   "😄",
+		Address: []string{"test set 未来星球🌲✨"},
+		Car: &Car{
+			Name:  "概念🚗，✈，🚚️",
+			Price: float64(1) / 100,
+		},
+	}
+	err := g2.Set(key, &o, 5, false)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println(o.Value)
+}
+
+func TestG2Cache_Del(t *testing.T) {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 20
+	g2 := New(nil, nil)
+	defer g2.Close()
+	key := GenKey("g2cache-key", 1)
+	err := g2.Del(key, true)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+}
+
 func BenchmarkG2Cache_Get(b *testing.B) {
-	g2 := New("127.0.0.1:6379", "07030501310", 0, 10)
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 20
+	g2 := New(nil, nil)
+	defer g2.Close()
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		key := GenKey("g2cache-key", i)
-		var o Object
-		err := g2.Get(key, &o, 2, func() (interface{}, error) {
-			return &Object{Value: "ssfadf"}, nil
+		result, err := g2.Get(key, 5, func() (interface{}, error) {
+			time.Sleep(1 * time.Second)
+			return &Object{
+				ID:      i,
+				Value:   "😄",
+				Address: []string{"test get 未来星球🌲✨"},
+				Car: &Car{
+					Name:  "概念🚗，✈，🚚️",
+					Price: float64(i) / 100,
+				},
+			}, nil
 		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Log(result)
+	}
+}
+
+func BenchmarkG2Cache_Set(b *testing.B) {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 20
+	g2 := New(nil, nil)
+	defer g2.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := GenKey("g2cache-key", i)
+		var o = Object{
+			ID:      i,
+			Value:   "😄",
+			Address: []string{"test set 未来星球🌲✨"},
+			Car: &Car{
+				Name:  "概念🚗，✈，🚚️",
+				Price: float64(i) / 100,
+			},
+		}
+		err := g2.Set(key, &o, 5, false)
 		if err != nil {
 			b.Fatal(err)
 			return
 		}
 	}
+	b.ReportAllocs()
+}
+
+func BenchmarkG2Cache_Del(b *testing.B) {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.DB = 0
+	DefaultRedisConf.Pwd = "07030501310"
+	DefaultRedisConf.MaxConn = 20
+	g2 := New(nil, nil)
+	defer g2.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		key := GenKey("g2cache-key", i)
+		err := g2.Del(key, true)
+		if err != nil {
+			b.Fatal(err)
+			return
+		}
+	}
+	b.ReportAllocs()
 }

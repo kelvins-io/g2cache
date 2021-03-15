@@ -57,21 +57,21 @@ func getRedisConn(pool *redis.Pool) (redis.Conn, error) {
 	return conn, nil
 }
 
-func GetRedisPool(dsn, pwd string, db, maxConn int) *redis.Pool {
+func GetRedisPool(conf *RedisConf) *redis.Pool {
 	pool := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial("tcp", dsn)
+			c, err := redis.Dial("tcp", conf.DSN)
 			if err != nil {
 				return nil, err
 			}
-			if pwd != "" {
-				if _, err := c.Do("AUTH", pwd); err != nil {
+			if conf.Pwd != "" {
+				if _, err := c.Do("AUTH", conf.Pwd); err != nil {
 					err = c.Close()
 					return nil, err
 				}
 			}
-			if db > 0 {
-				if _, err := c.Do("SELECT", db); err != nil {
+			if conf.DB > 0 {
+				if _, err := c.Do("SELECT", conf.DB); err != nil {
 					err = c.Close()
 					return nil, err
 				}
@@ -82,8 +82,8 @@ func GetRedisPool(dsn, pwd string, db, maxConn int) *redis.Pool {
 			_, err := c.Do("PING")
 			return err
 		},
-		MaxIdle:         maxConn,
-		MaxActive:       maxConn,
+		MaxIdle:         conf.MaxConn,
+		MaxActive:       conf.MaxConn,
 		IdleTimeout:     300 * time.Second,
 		Wait:            true,
 		MaxConnLifetime: 30 * time.Minute,

@@ -1,15 +1,21 @@
 package g2cache
 
-import "time"
+import (
+	"time"
+)
+
+const (
+	lazyFactor = 256
+)
 
 type Entry struct {
-	Value interface{} `json:"value"`
-	Ttl   int         `json:"ttl"`
-	Obsolete int64 `json:"obsolete"`
-	Expiration int64 `json:"expiration"`
+	Value      interface{} `json:"value"`
+	Ttl        int         `json:"ttl"`
+	Obsolete   int64       `json:"obsolete"`
+	Expiration int64       `json:"expiration"`
 }
-
-func (e *Entry) OutDated() bool  {
+// Outdated data means that the data is still available, but not up-to-date
+func (e *Entry) Obsoleted() bool {
 	if e.Obsolete == 0 {
 		return false
 	}
@@ -18,8 +24,8 @@ func (e *Entry) OutDated() bool  {
 	}
 	return false
 }
-
-func (e *Entry) Expired() bool  {
+// Expired means that the data is unavailable and data needs to be synchronized
+func (e *Entry) Expired() bool {
 	if e.Expiration > 0 {
 		if time.Now().UnixNano() > e.Expiration {
 			return false
@@ -28,17 +34,17 @@ func (e *Entry) Expired() bool  {
 	return true
 }
 
-func NewEntry(v interface{}, d int) *Entry  {
+func NewEntry(v interface{}, d int) *Entry {
 	ttl := d
-	var od,e int64
+	var od, e int64
 	if d > 0 {
-		od = time.Now().Add(time.Duration(d)*time.Second).UnixNano()
-		e = time.Now().Add(time.Duration(d*lazyFactor)*time.Second).UnixNano()
+		od = time.Now().Add(time.Duration(d) * time.Second).UnixNano()
+		e = time.Now().Add(time.Duration(d*lazyFactor) * time.Second).UnixNano()
 	}
 	return &Entry{
 		Value:      v,
 		Ttl:        ttl,
-		Obsolete:    od,
+		Obsolete:   od,
 		Expiration: e,
 	}
 }
