@@ -26,9 +26,9 @@ type Car struct {
 	Price float64 `json:"price"`
 }
 
-func (o *Object) DeepCopy() interface{} {
-	return &(*o)
-}
+//func (o *Object) DeepCopy() interface{} {
+//	return &(*o)
+//}
 
 var (
 	channel = make(chan os.Signal, 2)
@@ -73,12 +73,12 @@ func example(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 		}
 
 		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxUint8))
-		_, err := g2.Get(key, 60, func() (interface{}, error) {
+		result, err := g2.Get(key, 60, func() (interface{}, error) {
 			time.Sleep(1 * time.Second)
 			return &Object{
 				ID:      i,
 				Value:   "😄",
-				Address: []string{"example 未来星球🌲✨"},
+				Address: []string{"example 未来星球🌲✨",key},
 				Car: &Car{
 					Name:  "概念🚗，✈，🚚️",
 					Price: float64(i) / 100,
@@ -89,6 +89,7 @@ func example(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 			log.Println(err)
 			return
 		}
+		log.Printf("key:%-10s  => %v",key,result)
 		time.Sleep(sleep)
 	}
 }

@@ -1,7 +1,6 @@
 package g2cache
 
 import (
-	"fmt"
 	"testing"
 	"time"
 )
@@ -18,9 +17,9 @@ type Car struct {
 	Price float64 `json:"price"`
 }
 
-func (o *Object) DeepCopy() interface{} {
-	return &(*o)
-}
+//func (o *Object) DeepCopy() interface{} {
+//	return &(*o)
+//}
 
 func TestG2Cache_Get(t *testing.T) {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
@@ -43,17 +42,18 @@ func TestG2Cache_Get(t *testing.T) {
 		}, nil
 	})
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
-	fmt.Println(o)
+	t.Log(o)
+	time.Sleep(2 * time.Second)
 }
 
 func TestG2Cache_Set(t *testing.T) {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
 	DefaultRedisConf.DB = 0
 	DefaultRedisConf.Pwd = "07030501310"
-	DefaultRedisConf.MaxConn = 1
+	DefaultRedisConf.MaxConn = 20
 	g2 := New(nil, nil)
 	defer g2.Close()
 	key := GenKey("g2cache-key", 1)
@@ -66,12 +66,12 @@ func TestG2Cache_Set(t *testing.T) {
 			Price: float64(1) / 100,
 		},
 	}
-	err := g2.Set(key, &o, 5, false)
+	err := g2.Set(key, &o, 5, true)
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
-	fmt.Println(o.Value)
+	t.Log(o.Value)
 }
 
 func TestG2Cache_Del(t *testing.T) {
@@ -84,7 +84,7 @@ func TestG2Cache_Del(t *testing.T) {
 	key := GenKey("g2cache-key", 1)
 	err := g2.Del(key, true)
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
 }
@@ -117,6 +117,7 @@ func BenchmarkG2Cache_Get(b *testing.B) {
 		}
 		b.Log(result)
 	}
+	time.Sleep(3 * time.Second)
 }
 
 func BenchmarkG2Cache_Set(b *testing.B) {
@@ -138,7 +139,7 @@ func BenchmarkG2Cache_Set(b *testing.B) {
 				Price: float64(i) / 100,
 			},
 		}
-		err := g2.Set(key, &o, 5, false)
+		err := g2.Set(key, &o, 5, true)
 		if err != nil {
 			b.Fatal(err)
 			return

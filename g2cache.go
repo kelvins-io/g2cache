@@ -66,7 +66,7 @@ func (g *G2Cache) get(key string, ttl int, fn LoadDataSourceFunc) (interface{}, 
 	}
 	if ok {
 		if CacheDebug {
-			log.Printf("key:%-20s ==>hit local storage\n",key)
+			log.Printf("key:%-20s ==>hit local storage\n", key)
 		}
 		if v.Obsoleted() {
 			go func() {
@@ -84,7 +84,7 @@ func (g *G2Cache) get(key string, ttl int, fn LoadDataSourceFunc) (interface{}, 
 	}
 	if ok {
 		if CacheDebug {
-			log.Printf("key:%-20s ==>hit out storage\n",key)
+			log.Printf("key:%-20s ==>hit out storage\n", key)
 		}
 		err = g.local.Set(key, v)
 		return jsoniter.MarshalToString(v.Value)
@@ -96,7 +96,7 @@ func (g *G2Cache) get(key string, ttl int, fn LoadDataSourceFunc) (interface{}, 
 	defer g.shards[idx&defaultShardsAndOpVal].Unlock()
 
 	if CacheDebug {
-		log.Printf("key:%-20s ==>hit data source\n",key)
+		log.Printf("key:%-20s ==>hit data source\n", key)
 	}
 	o, err := fn()
 	if err != nil {
@@ -134,11 +134,13 @@ func (g *G2Cache) set(key string, obj interface{}, ttl int, wait bool) (err erro
 		return err
 	}
 	if wait {
+		err = g.out.Set(key, v)
 		err = g.out.Publish(key, SetPublishType, v)
 		return err
 	}
 
 	go func() {
+		_ = g.out.Set(key, v)
 		_ = g.out.Publish(key, SetPublishType, v)
 	}()
 
@@ -185,10 +187,12 @@ func (g *G2Cache) del(key string, wait bool) (err error) {
 	err = g.local.Del(key)
 
 	if wait {
+		err = g.out.Del(key)
 		err = g.out.Publish(key, DelPublishType, nil)
 		return err
 	}
 	go func() {
+		_ = g.out.Del(key)
 		_ = g.out.Publish(key, DelPublishType, nil)
 	}()
 
