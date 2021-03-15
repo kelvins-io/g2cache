@@ -39,8 +39,6 @@ func NewBigCache() *BigCache {
 	}
 	b := BigCache{storage: storage, stop: make(chan struct{}, 1)}
 
-	go b.startScan()
-
 	return &b
 }
 
@@ -75,15 +73,7 @@ func (b *BigCache) Close() {
 	b.stopOnce.Do(b.close)
 }
 
-func (b *BigCache) startScan() {
-	b.stop <- struct{}{}
-}
-
-func (b *BigCache) stopScan() {
-	<-b.stop
-}
-
-func (b *BigCache) Get(key string) (*Entry, bool, error) {
+func (b *BigCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	select {
 	case <-b.stop:
 		return nil, false, LocalStorageClose
@@ -97,6 +87,7 @@ func (b *BigCache) Get(key string) (*Entry, bool, error) {
 		return nil, false, err
 	}
 	e := new(Entry)
+	e.Value = obj // Save the reflection structure of obj
 	err = jsoniter.Unmarshal(str, e)
 	if err != nil {
 		return nil, false, err

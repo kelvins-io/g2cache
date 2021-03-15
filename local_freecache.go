@@ -44,7 +44,7 @@ func (c *FreeCache) Del(key string) error {
 	return nil
 }
 
-func (c *FreeCache) Get(key string) (*Entry, bool, error) {
+func (c *FreeCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	select {
 	case <-c.stop:
 		return nil, false, LocalStorageClose
@@ -58,7 +58,8 @@ func (c *FreeCache) Get(key string) (*Entry, bool, error) {
 		return nil, false, err
 	}
 	e := new(Entry)
-	err = jsoniter.Unmarshal(b,e)
+	e.Value = obj // Save the reflection structure of obj
+	err = jsoniter.Unmarshal(b, e)
 	if err != nil {
 		return nil, false, err
 	}

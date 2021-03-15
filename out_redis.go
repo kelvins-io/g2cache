@@ -104,7 +104,7 @@ LOOP:
 	return nil
 }
 
-func (r *RedisCache) Get(key string) (*Entry, bool, error) {
+func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	select {
 	case <-r.stop:
 		return nil, false, OutStorageClose
@@ -118,7 +118,7 @@ func (r *RedisCache) Get(key string) (*Entry, bool, error) {
 		return nil, false, nil
 	}
 	var e Entry
-	e.Value = str
+	e.Value = obj // Save the reflection structure of obj
 	if jsoniter.UnmarshalFromString(str, &e) != nil {
 		return nil, false, nil
 	}

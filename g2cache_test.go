@@ -1,7 +1,7 @@
 package g2cache
 
 import (
-	"fmt"
+	jsoniter "github.com/json-iterator/go"
 	"testing"
 	"time"
 )
@@ -14,13 +14,13 @@ type Object struct {
 }
 
 type Car struct {
-	Name  string  `json:"name"`
-	Price float64 `json:"price"`
+	Name  string    `json:"name"`
+	Price float64   `json:"price"`
 }
 
-func (o *Object) DeepCopy() interface{} {
-	return &(*o)
-}
+//func (o *Object) DeepCopy() interface{} {
+//	return &(*o)
+//}
 
 func TestG2Cache_Get(t *testing.T) {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
@@ -30,12 +30,13 @@ func TestG2Cache_Get(t *testing.T) {
 	g2 := New(nil, nil)
 	defer g2.Close()
 	key := GenKey("g2cache-key", 1)
-	o, err := g2.Get(key, 5, func() (interface{}, error) {
+	var o Object
+	err := g2.Get(key, 5, &o, func() (interface{}, error) {
 		time.Sleep(1 * time.Second)
 		return &Object{
 			ID:      1,
 			Value:   "😄",
-			Address: []string{"test get 未来星球🌲✨"},
+			Address: []string{"test get 未来星球🌲✨", time.Now().String()},
 			Car: &Car{
 				Name:  "概念🚗，✈，🚚️",
 				Price: float64(1) / 100,
@@ -43,35 +44,38 @@ func TestG2Cache_Get(t *testing.T) {
 		}, nil
 	})
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
-	fmt.Println(o)
+	t.Log(o.Car.Price)
+	t.Log(o.Car.Name)
+	str, _ := jsoniter.MarshalToString(o)
+	t.Log(str)
+	time.Sleep(2*time.Second)
 }
 
 func TestG2Cache_Set(t *testing.T) {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
 	DefaultRedisConf.DB = 0
 	DefaultRedisConf.Pwd = "07030501310"
-	DefaultRedisConf.MaxConn = 1
+	DefaultRedisConf.MaxConn = 20
 	g2 := New(nil, nil)
 	defer g2.Close()
 	key := GenKey("g2cache-key", 1)
 	var o = Object{
 		ID:      1,
 		Value:   "😄",
-		Address: []string{"test set 未来星球🌲✨"},
+		Address: []string{"test set 未来星球🌲✨", time.Now().String()},
 		Car: &Car{
 			Name:  "概念🚗，✈，🚚️",
 			Price: float64(1) / 100,
 		},
 	}
-	err := g2.Set(key, &o, 5, false)
+	err := g2.Set(key, &o, 5, true)
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
-	fmt.Println(o.Value)
 }
 
 func TestG2Cache_Del(t *testing.T) {
@@ -84,7 +88,7 @@ func TestG2Cache_Del(t *testing.T) {
 	key := GenKey("g2cache-key", 1)
 	err := g2.Del(key, true)
 	if err != nil {
-		fmt.Println(err)
+		t.Fatal(err)
 		return
 	}
 }
@@ -100,12 +104,13 @@ func BenchmarkG2Cache_Get(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		key := GenKey("g2cache-key", i)
-		result, err := g2.Get(key, 5, func() (interface{}, error) {
+		var o Object
+		err := g2.Get(key, 5, &o, func() (interface{}, error) {
 			time.Sleep(1 * time.Second)
 			return &Object{
 				ID:      i,
 				Value:   "😄",
-				Address: []string{"test get 未来星球🌲✨"},
+				Address: []string{"test get 未来星球🌲✨", time.Now().String()},
 				Car: &Car{
 					Name:  "概念🚗，✈，🚚️",
 					Price: float64(i) / 100,
@@ -115,7 +120,7 @@ func BenchmarkG2Cache_Get(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		b.Log(result)
+		b.Log(o)
 	}
 }
 
@@ -132,7 +137,7 @@ func BenchmarkG2Cache_Set(b *testing.B) {
 		var o = Object{
 			ID:      i,
 			Value:   "😄",
-			Address: []string{"test set 未来星球🌲✨"},
+			Address: []string{"test set 未来星球🌲✨", time.Now().String()},
 			Car: &Car{
 				Name:  "概念🚗，✈，🚚️",
 				Price: float64(i) / 100,

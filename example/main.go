@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"gitee.com/kelvins-io/g2cache"
+	jsoniter "github.com/json-iterator/go"
 	"log"
 	"math"
 	"math/rand"
@@ -42,7 +44,7 @@ func main() {
 	}()
 
 	g2 := g2cache.New(nil, nil)
-	g2cache.CacheDebug = true
+	g2cache.CacheDebug = false
 	g2cache.DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 	g2cache.DefaultRedisConf.DSN = "127.0.0.1:6379"
 	g2cache.DefaultRedisConf.DB = 1
@@ -73,12 +75,13 @@ func example(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 		}
 
 		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxUint8))
-		_, err := g2.Get(key, 60, func() (interface{}, error) {
+		var o Object
+		err := g2.Get(key, 60, &o, func() (interface{}, error) {
 			time.Sleep(1 * time.Second)
 			return &Object{
 				ID:      i,
 				Value:   "😄",
-				Address: []string{"example 未来星球🌲✨"},
+				Address: []string{"example 未来星球🌲✨",time.Now().String()},
 				Car: &Car{
 					Name:  "概念🚗，✈，🚚️",
 					Price: float64(i) / 100,
@@ -89,6 +92,9 @@ func example(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 			log.Println(err)
 			return
 		}
+		fmt.Println(o.Car.Name)
+		s, _ := jsoniter.MarshalToString(o)
+		fmt.Println(s)
 		time.Sleep(sleep)
 	}
 }

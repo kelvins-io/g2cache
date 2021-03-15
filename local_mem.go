@@ -96,7 +96,7 @@ func (m *MemCache) Del(key string) error {
 	return nil
 }
 
-func (m *MemCache) Get(key string) (*Entry, bool, error) {
+func (m *MemCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	select {
 	case <-m.stop:
 		return nil, false, LocalStorageClose
@@ -109,6 +109,7 @@ func (m *MemCache) Get(key string) (*Entry, bool, error) {
 	str := obj.([]byte)
 
 	e := new(Entry)
+	e.Value = obj // Save the reflection structure of obj
 	err := jsoniter.Unmarshal(str,e)
 	if err != nil {
 		return nil, false, err

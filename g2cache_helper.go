@@ -3,6 +3,9 @@ package g2cache
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"github.com/mohae/deepcopy"
+	"reflect"
 	"strconv"
 )
 
@@ -12,20 +15,20 @@ var (
 	CacheClose        = errors.New("g2cache close !!! ")
 )
 
-//func clone(src, dst interface{}) (err error) {
-//	defer func() {
-//		if e := recover(); e != nil {
-//			err = errors.New(fmt.Sprint(e))
-//			return
-//		}
-//	}()
-//
-//	v := deepcopy.Copy(src)
-//	if reflect.ValueOf(v).IsValid() {
-//		reflect.ValueOf(dst).Elem().Set(reflect.Indirect(reflect.ValueOf(v)))
-//	}
-//	return err
-//}
+func clone(src, dst interface{}) (err error) {
+	defer func() {
+		if e := recover(); e != nil {
+			err = errors.New(fmt.Sprint(e))
+			return
+		}
+	}()
+
+	v := deepcopy.Copy(src)
+	if reflect.ValueOf(v).IsValid() {
+		reflect.ValueOf(dst).Elem().Set(reflect.Indirect(reflect.ValueOf(v)))
+	}
+	return err
+}
 
 func GenKey(args ...interface{}) string {
 	var buf bytes.Buffer
