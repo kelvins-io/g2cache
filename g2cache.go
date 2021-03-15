@@ -10,7 +10,7 @@ import (
 
 const (
 	lazyFactor    = 256
-	delKeyChannel = "g2cache-delete"
+	subPubChannel = "g2cache-subPub-channel"
 	gcTtl         = 5 * time.Second
 )
 
@@ -31,7 +31,7 @@ func New(redisDsn, redisPwd string, db,maxConn int) *G2Cache {
 	g.pool = GetRedisPool(redisDsn, redisPwd, db,maxConn)
 	g.rds = NewRedisCache(g.pool, g.mem)
 
-	go g.subscribe(delKeyChannel)
+	go g.subscribe(subPubChannel)
 
 	return g
 }
@@ -40,10 +40,10 @@ func (g *G2Cache) Get(key string, obj interface{}, ttl int, fn LoadFunc) error {
 	if g.debug {
 		ttl = 1
 	}
-	return g.getObjectWithExprie(key, obj, ttl, fn)
+	return g.getObjectWithExpire(key, obj, ttl, fn)
 }
 
-func (g *G2Cache) getObjectWithExprie(key string, obj interface{}, ttl int, fn LoadFunc) error {
+func (g *G2Cache) getObjectWithExpire(key string, obj interface{}, ttl int, fn LoadFunc) error {
 	v, ok := g.mem.Get(key)
 	if ok {
 		if v.OutDated() {
@@ -92,7 +92,7 @@ func (g *G2Cache) EnableDebug() {
 }
 
 func (g *G2Cache) Del(key string) error {
-	return RedisPublish(delKeyChannel, key, g.pool)
+	return RedisPublish(subPubChannel, key, g.pool)
 }
 
 func (g *G2Cache) delete(key string) error {
