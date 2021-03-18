@@ -39,6 +39,15 @@ type OutCache interface {
 }
 ```
 
+LoadDataSourceFunc 原始数据加载函数，需要自行处理panic并以error形式返回    
+加载函数支持返回string，map，slice，struct，ptr类型   
+```go
+// Shouldn't throw a panic, please return an error
+type LoadDataSourceFunc func() (interface{}, error)
+
+```
+
+
 Usage   
 go get gitee.com/kelvins-io/g2cache
 ```go
