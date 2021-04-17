@@ -9,7 +9,7 @@ func TestGetRedisPool(t *testing.T) {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
 	DefaultRedisConf.DB = 0
 	DefaultRedisConf.Pwd = "07030501310"
-	DefaultRedisConf.MaxConn = 20
+	DefaultRedisConf.MaxConn = 2
 	pool := GetRedisPool(&DefaultRedisConf)
 	_, err := pool.Get().Do("SET", "xxx", "yangq")
 	if err != nil {

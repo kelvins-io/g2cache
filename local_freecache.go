@@ -4,10 +4,11 @@ import (
 	"github.com/coocood/freecache"
 	jsoniter "github.com/json-iterator/go"
 	"sync"
+	"time"
 )
 
 var (
-	DefaultFreeCacheSize = 50 * 1024 * 1024 // 50MB
+	DefaultFreeCacheSize = 50 * 1024 * 1024 // 100MB
 )
 
 type FreeCache struct {
@@ -31,7 +32,9 @@ func (c *FreeCache) Set(key string, e *Entry) error {
 	default:
 	}
 	s, _ := jsoniter.Marshal(e)
-	return c.storage.Set([]byte(key), s, DefaultGcTTL)
+	// local storage should set Obsolete time
+	obsolete := (e.Obsolete - time.Now().UnixNano()) / int64(time.Second)
+	return c.storage.Set([]byte(key), s, int(obsolete))
 }
 
 func (c *FreeCache) Del(key string) error {

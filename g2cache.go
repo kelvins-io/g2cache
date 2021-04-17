@@ -1,9 +1,11 @@
 package g2cache
 
 import (
+	"fmt"
 	"github.com/mohae/deepcopy"
-	"log"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // The value can be changed by external assignment
@@ -14,10 +16,19 @@ const (
 )
 
 var (
-	CacheDebug bool
+	CacheDebug                  bool
+	CacheMonitor                bool
+	CacheMonitorSecond          = 5
+	DefaultGPoolWorkerNum       = 512
+	DefaultGPoolJobQueueChanLen = 1000
+)
+
+var (
+	HitStatisticsOut HitStatistics
 )
 
 type G2Cache struct {
+	GID      string
 	out      OutCache
 	local    LocalCache
 	shards   [defaultShards]sync.Mutex
@@ -25,19 +36,24 @@ type G2Cache struct {
 	stop     chan struct{}
 	stopOnce sync.Once
 	channel  chan *ChannelMeta
+	gPool    *Pool
 }
 
-// Shouldn't throw a panic, please return an error
-type LoadDataSourceFunc func() (interface{}, error)
-
 func New(out OutCache, local LocalCache) *G2Cache {
+	gid, err := NewUUID()
+	if err != nil {
+		panic(fmt.Sprintf("gen gid err :%v", err))
+	}
+	LogInfo("gid = ", gid)
 	g := &G2Cache{
+		GID:     gid,
 		hash:    new(fnv64a),
 		stop:    make(chan struct{}, 1),
 		channel: make(chan *ChannelMeta, defaultShards),
+		gPool:   NewPool(DefaultGPoolWorkerNum, DefaultGPoolJobQueueChanLen),
 	}
 	if local == nil {
-		local = NewBigCache()
+		local = NewFreeCache()
 	}
 	if out == nil {
 		out = NewRedisCache(local)
@@ -45,11 +61,34 @@ func New(out OutCache, local LocalCache) *G2Cache {
 	g.local = local
 	g.out = out
 
-	go g.Subscribe()
+	_, ok := g.out.(PubSub)
+	if ok {
+		g.gPool.SendJob(wrapFuncErr(g.subscribe))
+	}
+
+	HitStatisticsOut.AccessGetTotal = 1
+
+	if CacheMonitor {
+		g.gPool.SendJob(g.monitor)
+	}
 
 	return g
 }
 
+func (g *G2Cache) monitor() {
+	t := time.NewTicker(time.Duration(CacheMonitorSecond) * time.Second)
+	for {
+		select {
+		case <-t.C:
+			HitStatisticsOut.Calculation()
+			LogInf("statistics local hit percentage %.4f", HitStatisticsOut.HitLocalStorageTotalRate*100)
+			LogInf("statistics out hit percentage %.4f", HitStatisticsOut.HitOutStorageTotalRate*100)
+			LogInf("statistics data source hit percentage %.4f", HitStatisticsOut.HitDataSourceTotalRate*100)
+		}
+	}
+}
+
+// ttl is second
 func (g *G2Cache) Get(key string, ttl int, obj interface{}, fn LoadDataSourceFunc) error {
 	select {
 	case <-g.stop:
@@ -60,23 +99,25 @@ func (g *G2Cache) Get(key string, ttl int, obj interface{}, fn LoadDataSourceFun
 }
 
 func (g *G2Cache) get(key string, ttl int, obj interface{}, fn LoadDataSourceFunc) error {
-	v, ok, err := g.local.Get(key, obj)
+	atomic.AddInt64(&HitStatisticsOut.AccessGetTotal, 1)
+	v, ok, err := g.local.Get(key, obj) // sync so not need copy obj
 	if err != nil {
 		return err
 	}
 	if ok {
+		atomic.AddInt64(&HitStatisticsOut.HitLocalStorageTotal, 1)
 		if CacheDebug {
-			log.Printf("key:%-20s ==>hit local storage\n", key)
+			LogInf("key:%-30s => [\u001B[32m hit local storage \u001B[0m]\n", key)
 		}
 		if v.Obsoleted() {
-			go func() {
-				to := deepcopy.Copy(obj)
+			to := deepcopy.Copy(obj) // async so copy obj
+			g.gPool.SendJob(func() {
 				// Pass a copy in order to explore the internal structure of obj
 				err := g.syncLocalCache(key, ttl, to, fn)
 				if err != nil {
-					log.Printf("syncMemCache key=%v,err=%v", key, err)
+					LogInf("syncMemCache key=%s,err=%v\n", key, err)
 				}
-			}()
+			})
 		}
 		return clone(v.Value, obj)
 	}
@@ -85,38 +126,24 @@ func (g *G2Cache) get(key string, ttl int, obj interface{}, fn LoadDataSourceFun
 		return err
 	}
 	if ok {
-		if CacheDebug {
-			log.Printf("key:%-20s ==>hit out storage\n", key)
+		if !v.Expired() {
+			atomic.AddInt64(&HitStatisticsOut.HitOutStorageTotal, 1)
+			if CacheDebug {
+				LogInf("key:%-30s => [\u001B[33m hit out storage \u001B[0m]\n", key)
+			}
+			// Prevent penetration of external storage
+			err = g.local.Set(key, v)
+			if err != nil {
+				return err
+			}
+			return clone(v.Value, obj)
 		}
-		err = g.local.Set(key, v)
-		return clone(v.Value, obj)
 	}
 
-	// 从数据源加载
-	idx := g.hash.Sum64(key)
-	g.shards[idx&defaultShardsAndOpVal].Lock()
-	defer g.shards[idx&defaultShardsAndOpVal].Unlock()
-
-	if CacheDebug {
-		log.Printf("key:%-20s ==>hit data source\n", key)
-	}
-	o, err := fn()
+	o, err := g.syncOutCache(key, ttl, fn)
 	if err != nil {
 		return err
 	}
-	e := NewEntry(o, ttl)
-	err = g.local.Set(key, e)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		err = g.out.Set(key, e)
-		if err != nil {
-			log.Printf("syncMemCache key=%v,val=%+v,,err=%v", key, e, err)
-		}
-	}()
-
 	return clone(o, obj)
 }
 
@@ -137,14 +164,30 @@ func (g *G2Cache) set(key string, obj interface{}, ttl int, wait bool) (err erro
 	}
 	if wait {
 		err = g.out.Set(key, v)
-		err = g.out.Publish(key, SetPublishType, v)
-		return err
+		if err != nil {
+			LogErr(err)
+			return err
+		}
+		pubsub, ok := g.out.(PubSub)
+		if ok {
+			return pubsub.Publish(g.GID, key, SetPublishType, v)
+		}
+		return nil
 	}
 
-	go func() {
-		_ = g.out.Set(key, v)
-		_ = g.out.Publish(key, SetPublishType, v)
-	}()
+	g.gPool.SendJob(func() {
+		_err := g.out.Set(key, v)
+		if _err != nil {
+			LogErr(_err)
+		}
+		pubsub, ok := g.out.(PubSub)
+		if ok {
+			_err = pubsub.Publish(g.GID, key, SetPublishType, v)
+			if _err != nil {
+				LogErr(_err)
+			}
+		}
+	})
 
 	return err
 }
@@ -154,27 +197,86 @@ func (g *G2Cache) syncLocalCache(key string, ttl int, obj interface{}, fn LoadDa
 	if err != nil {
 		return err
 	}
-	if !ok || e == nil || e.Expired() {
+	if !ok || e.Expired() {
 		// 从fn里面加载数据
 		idx := g.hash.Sum64(key)
 		g.shards[idx&defaultShardsAndOpVal].Lock()
 		defer g.shards[idx&defaultShardsAndOpVal].Unlock()
+
+		atomic.AddInt64(&HitStatisticsOut.HitDataSourceTotal, 1)
+		if CacheDebug {
+			LogInf("key:%-30s => [\u001B[31m hit data source \u001B[0m]\n", key)
+		}
 
 		v, err := fn()
 		if err != nil {
 			return err
 		}
 		if v == nil {
-			return nil
+			return DataSourceLoadNil
 		}
 		e = NewEntry(v, ttl)
-		err = g.out.Set(key, e)
 		err = g.local.Set(key, e)
-		return err
+		if err != nil {
+			return err
+		}
+		g.gPool.SendJob(func() {
+			_err := g.out.Set(key, e)
+			if _err != nil {
+				LogErr("syncLocalCache out set err ", err)
+			}
+			pubsub, ok := g.out.(PubSub)
+			if ok {
+				_err = pubsub.Publish(g.GID, key, SetPublishType, e)
+				if _err != nil {
+					LogErr("syncLocalCache Publish err", err)
+				}
+			}
+		})
 	}
+
+	atomic.AddInt64(&HitStatisticsOut.HitOutStorageTotal, 1)
+	if CacheDebug {
+		LogInf("key:%-30s => [\u001B[33m hit out storage \u001B[0m]\n", key)
+	}
+
+	return g.local.Set(key, e)
+}
+
+func (g *G2Cache) syncOutCache(key string, ttl int, fn LoadDataSourceFunc) (interface{}, error) {
+	// 从数据源加载
+	idx := g.hash.Sum64(key)
+	g.shards[idx&defaultShardsAndOpVal].Lock()
+	defer g.shards[idx&defaultShardsAndOpVal].Unlock()
+
+	atomic.AddInt64(&HitStatisticsOut.HitDataSourceTotal, 1)
+	if CacheDebug {
+		LogInf("key:%-30s => [\u001B[31m hit data source \u001B[0m]\n", key)
+	}
+	o, err := fn()
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, DataSourceLoadNil
+	}
+	e := NewEntry(o, ttl)
 	err = g.local.Set(key, e)
-	err = g.out.Set(key, e)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	g.gPool.SendJob(func() {
+		_err := g.out.Set(key, e)
+		pubsub, ok := g.out.(PubSub)
+		if ok {
+			_err = pubsub.Publish(g.GID, key, SetPublishType, e)
+			if _err != nil {
+				LogInf("syncOutCache key=%s,val=%+v,,err=%v\n", key, e, err)
+			}
+		}
+	})
+
+	return o, err
 }
 
 func (g *G2Cache) Del(key string, wait bool) (err error) {
@@ -188,63 +290,86 @@ func (g *G2Cache) Del(key string, wait bool) (err error) {
 
 func (g *G2Cache) del(key string, wait bool) (err error) {
 	err = g.local.Del(key)
-
 	if wait {
 		err = g.out.Del(key)
-		err = g.out.Publish(key, DelPublishType, nil)
-		return err
+		if err != nil {
+			LogErr(err)
+		}
+		pubsub, ok := g.out.(PubSub)
+		if ok {
+			return pubsub.Publish(g.GID, key, DelPublishType, nil)
+		}
+		return nil
 	}
-	go func() {
-		_ = g.out.Del(key)
-		_ = g.out.Publish(key, DelPublishType, nil)
-	}()
+	g.gPool.SendJob(func() {
+		_err := g.out.Del(key)
+		if _err != nil {
+			LogErr(_err)
+		}
+		pubsub, ok := g.out.(PubSub)
+		if ok {
+			_err = pubsub.Publish(g.GID, key, DelPublishType, nil)
+			if _err != nil {
+				LogErr(_err)
+			}
+		}
+	})
 
 	return nil
 }
 
-func (g *G2Cache) Subscribe() error {
+func (g *G2Cache) subscribe() error {
 	select {
 	case <-g.stop:
 		return CacheClose
 	default:
 	}
-	return g.subscribe()
+	return g.subscribeInternal()
 }
 
-func (g *G2Cache) subscribe() error {
-	err := g.out.Subscribe(g.channel)
+func (g *G2Cache) subscribeInternal() error {
+	pubsub, ok := g.out.(PubSub)
+	if !ok {
+		return CacheNotImplementPubSub
+	}
+	err := pubsub.Subscribe(g.channel)
 	if err != nil {
 		return err
 	}
 
-	go func() {
-		for meta := range g.channel {
-			select {
-			case <-g.stop:
-				return
-			default:
-			}
-			key := meta.Key
-			switch meta.Action {
-			case DelPublishType:
-				if err := g.local.Del(key); err != nil {
-					log.Printf("local del key=%v, err=%v\n", key, err)
-				}
-				if err = g.out.Del(key); err != nil {
-					log.Printf("rds del key=%v, err=%v\n", key, err)
-				}
-			case SetPublishType:
-				if err = g.local.Set(meta.Key, meta.Data); err != nil {
-					log.Printf("local set key=%v,val=%+v, err=%v\n", key, *meta.Data, err)
-				}
-				if err = g.out.Set(key, meta.Data); err != nil {
-					log.Printf("rds set key=%v,val=%v, err=%v\n", key, *meta.Data, err)
-				}
-			default:
-				continue
-			}
+	for meta := range g.channel {
+		select {
+		case <-g.stop:
+			return OutStorageClose
+		default:
 		}
-	}()
+		if meta.Gid == g.GID {
+			continue
+		}
+		key := meta.Key
+		switch meta.Action {
+		case DelPublishType:
+			if err = g.out.Del(key); err != nil {
+				LogInf("out del key=%v, err=%v\n", key, err)
+			}
+			g.gPool.SendJob(func() {
+				if err := g.local.Del(key); err != nil {
+					LogInf("local del key=%v, err=%v\n", key, err)
+				}
+			})
+		case SetPublishType:
+			if err = g.local.Set(meta.Key, meta.Data); err != nil {
+				LogInf("local set key=%v,val=%+v, err=%v\n", key, *meta.Data, err)
+			}
+			g.gPool.SendJob(func() {
+				if err = g.out.Set(key, meta.Data); err != nil {
+					LogInf("out set key=%v,val=%v, err=%v\n", key, *meta.Data, err)
+				}
+			})
+		default:
+			continue
+		}
+	}
 
 	return nil
 }
@@ -253,6 +378,8 @@ func (g *G2Cache) close() {
 	close(g.stop)
 	g.out.Close()
 	g.local.Close()
+	g.gPool.Release()
+	g.gPool.WaitAll()
 }
 
 func (g *G2Cache) Close() {

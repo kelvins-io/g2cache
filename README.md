@@ -12,15 +12,16 @@
 local interface | 本机内存高速缓存 | 纳秒，毫秒级别响应速度；有效期较短 | 实现LocalCache接口，注意控制内存
 out interface |外部高速缓存，如Redis | 较快的访问速度，容量很足 | 实现OutCache接口
 LoadDataSourceFunc | 外部数据源 | 外部加载函数，灵活，并发保护 | 需要自行处理panic
+PubSub | 外部缓存发布订阅 | 外部缓存可以自选实现 | 未实现就不支持分布式
 
 local 本地内存高速缓存接口
 ```go
 // Local memory cache，Local memory cache with high access speed
 type LocalCache interface {
-	Get(key string, obj interface{}) (*Entry, bool, error) // obj代表LoadDataSourceFunc返回的object类型
-	Set(key string, e *Entry) error
+	Get(key string, obj interface{}) (*Entry, bool, error) // obj represents the internal structure of the real object
+	Set(key string, e *Entry) error                        // local storage should set Entry.Obsolete
 	Del(key string) error
-	ThreadSafe() // 接口实例对外方法都是线程安全
+	ThreadSafe() // Need to ensure thread safety
 	Close()
 }
 ```
@@ -29,15 +30,25 @@ out 外部缓存接口，值得一提的是外部缓存需要实现发布订阅�
 ```go
 // External cache has faster access speed, such as Redis
 type OutCache interface {
-	Get(key string, obj interface{}) (*Entry, bool, error)
-	Set(key string, e *Entry) error
+	Get(key string, obj interface{}) (*Entry, bool, error) // obj represents the internal structure of the real object
+	Set(key string, e *Entry) error                        // out storage should set Entry.Expiration
 	Subscribe(data chan *ChannelMeta) error
-	Publish(key string, action int8, data *Entry) error
+	Publish(gid ,key string, action int8, data *Entry) error
 	Del(key string) error
+	ThreadSafe() // Need to ensure thread safety
 	Close()
-	ThreadSafe() // 接口实例对外方法都是线程安全
 }
 ```
+
+外部缓存发布订阅
+```go
+// only out storage pub sub
+type PubSub interface {
+	Subscribe(data chan *ChannelMeta) error
+	Publish(gid, key string, action int8, data *Entry) error
+}
+```
+
 
 LoadDataSourceFunc 原始数据加载函数，需要自行处理panic并以error形式返回    
 加载函数支持返回string，map，slice，struct，ptr类型   
@@ -49,46 +60,16 @@ type LoadDataSourceFunc func() (interface{}, error)
 
 
 Usage   
-go get gitee.com/kelvins-io/g2cache
-```go
-func TestG2Cache_Get(t *testing.T) {
-	DefaultRedisConf.DSN = "127.0.0.1:6379"
-	DefaultRedisConf.DB = 0
-	DefaultRedisConf.Pwd = "xxx"
-	DefaultRedisConf.MaxConn = 20
-	g2 := New(nil, nil)
-	defer g2.Close()
-	key := GenKey("g2cache-key", 1)
-	var o Object
-	err := g2.Get(key, 5, &o, func() (interface{}, error) {
-		time.Sleep(1 * time.Second)
-		return &Object{
-			ID:      1,
-			Value:   "😄",
-			Address: []string{"g2cache 基地🌲✨", time.Now().String()},
-			Car: &Car{
-				Name:  "概念🚗，✈，🚚️",
-				Price: float64(1) / 100,
-			},
-		}, nil
-	})
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-	t.Log(o.Car.Price)
-	t.Log(o.Car.Name)
-	str, _ := jsoniter.MarshalToString(o)
-	t.Log(str)
-	time.Sleep(2*time.Second)
-}
-```
+go get gitee.com/kelvins-io/g2cache   
+cd example   
+go run main.go
 
 #### 分支说明
 
-1. copyobj分支支持返回特定object，为最新版
+1. copyobj分支支持返回特定object，为不稳定版本
 2.  dev分支Get返回object序列化值，过渡版
 3.  master分支只提供sync.Map的local实现，早期版
+4.  release分支提供发布版，与copyobj有较大变化
 
 #### 参与贡献
 
@@ -97,12 +78,5 @@ func TestG2Cache_Get(t *testing.T) {
 3.  提交代码
 4.  新建 Pull Request
 
-
-#### 特技
-
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+#### 合作交流
+1225807605@qq.com

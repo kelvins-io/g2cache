@@ -3,13 +3,17 @@ package g2cache
 import (
 	"github.com/gomodule/redigo/redis"
 	jsoniter "github.com/json-iterator/go"
-	"log"
 	"sync"
 	"time"
 )
 
 var DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 var DefaultRedisConf RedisConf
+
+func init() {
+	DefaultRedisConf.DSN = "127.0.0.1:6379"
+	DefaultRedisConf.MaxConn = 10
+}
 
 type RedisCache struct {
 	pool     *redis.Pool
@@ -61,8 +65,13 @@ func (r *RedisCache) Set(key string, obj *Entry) error {
 	if err != nil {
 		return err
 	}
+	// out storage should set Expiration time
 	rdsTtl := (obj.Expiration - time.Now().UnixNano()) / int64(time.Second)
 	return RedisSetString(key, str, int(rdsTtl), r.pool)
+}
+
+func (r *RedisCache) DistributedEnable() bool {
+	return true
 }
 
 func (r *RedisCache) Subscribe(ch chan *ChannelMeta) error {
@@ -76,7 +85,7 @@ func (r *RedisCache) Subscribe(ch chan *ChannelMeta) error {
 
 	psc := redis.PubSubConn{Conn: conn}
 	if err := psc.Subscribe(DefaultPubSubRedisChannel); err != nil {
-		log.Printf("rds subscribe key=%v, err=%v\n", DefaultPubSubRedisChannel, err)
+		LogInf("rds subscribe key=%v, err=%v\n", DefaultPubSubRedisChannel, err)
 		return err
 	}
 
@@ -90,13 +99,13 @@ LOOP:
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			meta := &ChannelMeta{}
-			err := jsoniter.Unmarshal(v.Data,meta)
+			err := jsoniter.Unmarshal(v.Data, meta)
 			if err != nil || meta.Key == "" {
 				continue
 			}
 			ch <- meta
 		case error:
-			log.Printf("rds receive err, msg=%v\n", v)
+			LogInf("rds receive err, msg=%v\n", v)
 			break LOOP
 		}
 	}
@@ -126,13 +135,14 @@ func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	return &e, true, err
 }
 
-func (r *RedisCache) Publish(key string, action int8, value *Entry) error {
+func (r *RedisCache) Publish(gid, key string, action int8, value *Entry) error {
 	select {
 	case <-r.stop:
 		return OutStorageClose
 	default:
 	}
 	meta := ChannelMeta{
+		Gid:    gid,
 		Key:    key,
 		Action: action,
 		Data:   value,
