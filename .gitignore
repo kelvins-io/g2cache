@@ -11,5 +11,5 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 vendor
-example/g2cache
+example/g2cache-example
 *.prof

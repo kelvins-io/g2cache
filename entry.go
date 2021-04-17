@@ -14,24 +14,27 @@ type Entry struct {
 	Obsolete   int64       `json:"obsolete"`
 	Expiration int64       `json:"expiration"`
 }
+
 // Outdated data means that the data is still available, but not up-to-date
 func (e *Entry) Obsoleted() bool {
-	if e.Obsolete == 0 {
-		return false
+	if e.Obsolete <= 0 {
+		return true
 	}
 	if e.Obsolete < time.Now().UnixNano() {
 		return true
 	}
 	return false
 }
+
 // Expired means that the data is unavailable and data needs to be synchronized
 func (e *Entry) Expired() bool {
-	if e.Expiration > 0 {
-		if time.Now().UnixNano() > e.Expiration {
-			return false
-		}
+	if e.Expiration <= 0 {
+		return true
 	}
-	return true
+	if e.Expiration < time.Now().UnixNano() {
+		return true
+	}
+	return false
 }
 
 func NewEntry(v interface{}, d int) *Entry {

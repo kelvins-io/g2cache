@@ -4,6 +4,7 @@ import (
 	"github.com/coocood/freecache"
 	jsoniter "github.com/json-iterator/go"
 	"sync"
+	"time"
 )
 
 var (
@@ -31,7 +32,8 @@ func (c *FreeCache) Set(key string, e *Entry) error {
 	default:
 	}
 	s, _ := jsoniter.Marshal(e)
-	return c.storage.Set([]byte(key), s, DefaultGcTTL)
+	expire := (e.Obsolete - time.Now().UnixNano()) / int64(time.Second)
+	return c.storage.Set([]byte(key), s, int(expire))
 }
 
 func (c *FreeCache) Del(key string) error {

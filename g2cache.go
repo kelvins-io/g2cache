@@ -18,6 +18,7 @@ var (
 )
 
 type G2Cache struct {
+	gid      string
 	out      OutCache
 	local    LocalCache
 	shards   [defaultShards]sync.Mutex
@@ -36,8 +37,13 @@ func New(out OutCache, local LocalCache) *G2Cache {
 		stop:    make(chan struct{}, 1),
 		channel: make(chan *ChannelMeta, defaultShards),
 	}
+	gid, err := NewUUID()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	g.gid = gid
 	if local == nil {
-		local = NewBigCache()
+		local = NewFreeCache()
 	}
 	if out == nil {
 		out = NewRedisCache(local)
@@ -69,12 +75,12 @@ func (g *G2Cache) get(key string, ttl int, obj interface{}, fn LoadDataSourceFun
 			log.Printf("key:%-20s ==>hit local storage\n", key)
 		}
 		if v.Obsoleted() {
+			to := deepcopy.Copy(obj)
 			go func() {
-				to := deepcopy.Copy(obj)
 				// Pass a copy in order to explore the internal structure of obj
-				err := g.syncLocalCache(key, ttl, to, fn)
-				if err != nil {
-					log.Printf("syncMemCache key=%v,err=%v", key, err)
+				_err := g.syncLocalCache(key, ttl, to, fn)
+				if _err != nil {
+					log.Printf("syncMemCache key=%v,err=%v", key, _err)
 				}
 			}()
 		}
@@ -111,9 +117,9 @@ func (g *G2Cache) get(key string, ttl int, obj interface{}, fn LoadDataSourceFun
 	}
 
 	go func() {
-		err = g.out.Set(key, e)
-		if err != nil {
-			log.Printf("syncMemCache key=%v,val=%+v,,err=%v", key, e, err)
+		_err := g.out.Set(key, e)
+		if _err != nil {
+			log.Printf("syncMemCache key=%v,val=%+v,,err=%v", key, e, _err)
 		}
 	}()
 
@@ -137,13 +143,16 @@ func (g *G2Cache) set(key string, obj interface{}, ttl int, wait bool) (err erro
 	}
 	if wait {
 		err = g.out.Set(key, v)
-		err = g.out.Publish(key, SetPublishType, v)
+		err = g.out.Publish(g.gid, key, SetPublishType, v)
 		return err
 	}
 
 	go func() {
-		_ = g.out.Set(key, v)
-		_ = g.out.Publish(key, SetPublishType, v)
+		_err := g.out.Set(key, v)
+		_err = g.out.Publish(g.gid, key, SetPublishType, v)
+		if _err != nil {
+			log.Println("g2cache set err", _err)
+		}
 	}()
 
 	return err
@@ -168,12 +177,11 @@ func (g *G2Cache) syncLocalCache(key string, ttl int, obj interface{}, fn LoadDa
 			return nil
 		}
 		e = NewEntry(v, ttl)
-		err = g.out.Set(key, e)
 		err = g.local.Set(key, e)
+		err = g.out.Set(key, e)
 		return err
 	}
 	err = g.local.Set(key, e)
-	err = g.out.Set(key, e)
 	return err
 }
 
@@ -188,15 +196,18 @@ func (g *G2Cache) Del(key string, wait bool) (err error) {
 
 func (g *G2Cache) del(key string, wait bool) (err error) {
 	err = g.local.Del(key)
-
+	if err != nil {
+		return err
+	}
 	if wait {
 		err = g.out.Del(key)
-		err = g.out.Publish(key, DelPublishType, nil)
+		err = g.out.Publish(g.gid, key, DelPublishType, nil)
 		return err
 	}
 	go func() {
-		_ = g.out.Del(key)
-		_ = g.out.Publish(key, DelPublishType, nil)
+		_err := g.out.Del(key)
+		_err = g.out.Publish(g.gid, key, DelPublishType, nil)
+		log.Println("g2cache del err ", _err)
 	}()
 
 	return nil
@@ -224,22 +235,29 @@ func (g *G2Cache) subscribe() error {
 				return
 			default:
 			}
+			if meta.Gid == g.gid {
+				continue
+			}
 			key := meta.Key
 			switch meta.Action {
 			case DelPublishType:
 				if err := g.local.Del(key); err != nil {
 					log.Printf("local del key=%v, err=%v\n", key, err)
 				}
-				if err = g.out.Del(key); err != nil {
-					log.Printf("rds del key=%v, err=%v\n", key, err)
-				}
+				go func() {
+					if _err := g.out.Del(key); _err != nil {
+						log.Printf("out del key=%v, err=%v\n", key, _err)
+					}
+				}()
 			case SetPublishType:
 				if err = g.local.Set(meta.Key, meta.Data); err != nil {
 					log.Printf("local set key=%v,val=%+v, err=%v\n", key, *meta.Data, err)
 				}
-				if err = g.out.Set(key, meta.Data); err != nil {
-					log.Printf("rds set key=%v,val=%v, err=%v\n", key, *meta.Data, err)
-				}
+				go func() {
+					if _err := g.out.Set(key, meta.Data); _err != nil {
+						log.Printf("out set key=%v,val=%v, err=%v\n", key, *meta.Data, _err)
+					}
+				}()
 			default:
 				continue
 			}

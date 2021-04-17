@@ -1,9 +1,7 @@
 package main
 
 import (
-	"fmt"
 	"gitee.com/kelvins-io/g2cache"
-	jsoniter "github.com/json-iterator/go"
 	"log"
 	"math"
 	"math/rand"
@@ -38,18 +36,20 @@ var (
 )
 
 func main() {
-	signal.Notify(channel, syscall.SIGUSR1, syscall.SIGUSR2)
-	go func() {
-		http.ListenAndServe("0.0.0.0:6060", nil)
-	}()
-
-	g2 := g2cache.New(nil, nil)
-	g2cache.CacheDebug = false
+	g2cache.CacheDebug = true
 	g2cache.DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 	g2cache.DefaultRedisConf.DSN = "127.0.0.1:6379"
 	g2cache.DefaultRedisConf.DB = 1
 	g2cache.DefaultRedisConf.Pwd = "07030501310"
 	g2cache.DefaultRedisConf.MaxConn = 30
+	g2 := g2cache.New(nil, nil)
+	signal.Notify(channel, syscall.SIGUSR1, syscall.SIGUSR2)
+	go func() {
+		err := http.ListenAndServe("0.0.0.0:6060", nil)
+		if err != nil{
+			log.Fatalln(err)
+		}
+	}()
 	defer g2.Close()
 	wg := &sync.WaitGroup{}
 	wg.Add(10)
@@ -92,9 +92,9 @@ func example(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 			log.Println(err)
 			return
 		}
-		fmt.Println(o.Car.Name)
-		s, _ := jsoniter.MarshalToString(o)
-		fmt.Println(s)
+		//fmt.Println(o.Car.Name)
+		//s, _ := jsoniter.MarshalToString(o)
+		//fmt.Println(s)
 		time.Sleep(sleep)
 	}
 }

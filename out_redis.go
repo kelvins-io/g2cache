@@ -90,7 +90,7 @@ LOOP:
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			meta := &ChannelMeta{}
-			err := jsoniter.Unmarshal(v.Data,meta)
+			err := jsoniter.Unmarshal(v.Data, meta)
 			if err != nil || meta.Key == "" {
 				continue
 			}
@@ -126,13 +126,14 @@ func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	return &e, true, err
 }
 
-func (r *RedisCache) Publish(key string, action int8, value *Entry) error {
+func (r *RedisCache) Publish(gid, key string, action int8, value *Entry) error {
 	select {
 	case <-r.stop:
 		return OutStorageClose
 	default:
 	}
 	meta := ChannelMeta{
+		Gid:    gid,
 		Key:    key,
 		Action: action,
 		Data:   value,
