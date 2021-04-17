@@ -1,6 +1,6 @@
 # g2cache
 
-[![MinIO](logo.png)](https://gitee.com/kelvins-io)
+[![g2cache](logo.png)](https://gitee.com/kelvins-io)
 #### 介绍
 分布式多级缓存方案g2cache
 
