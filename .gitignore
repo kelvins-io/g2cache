@@ -13,3 +13,5 @@
 vendor
 example/g2cache-example
 *.prof
+go.mod
+go.sum

@@ -99,7 +99,7 @@ func NewPool(numWorkers int, jobQueueLen int) *Pool {
 		pool.workers[i] = newWorker(int64(i), pool, jobQueue)
 	}
 
-	if CacheDebug {
+	if CacheMonitor {
 		pool.wg.Add(1)
 		go pool.monitor()
 	}

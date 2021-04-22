@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	EntryLazyFactor = 256
+	EntryLazyFactor = 32
 )
 
 type Entry struct {

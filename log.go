@@ -44,30 +44,26 @@ var (
 	Logger LoggerInterface = &sysLogger{}
 )
 
-func init() {
-	log.SetPrefix("[\u001B[32mG2CACHE\u001B[0m] ")
-}
-
 func (l *sysLogger) LogInfo(s ...interface{}) {
-	log.Println("[\u001B[32minfo\u001B[0m] ", s)
+	log.Println("[\u001B[32mg2cache\u001B[0m] [\u001B[32minfo\u001B[0m] ", s)
 }
 
 func (l *sysLogger) LogInfoF(f string, s ...interface{}) {
-	log.Printf("[\u001B[32minfo\u001B[0m] "+f, s)
+	log.Printf("[\u001B[32mg2cache\u001B[0m] [\u001B[32minfo\u001B[0m] "+f, s)
 }
 
 func (l *sysLogger) LogDebug(s ...interface{}) {
-	log.Println("[\u001B[33mdebug\u001B[0m] ", s)
+	log.Println("[\u001B[32mg2cache\u001B[0m] [\u001B[33mdebug\u001B[0m] ", s)
 }
 
 func (l *sysLogger) LogDebugF(f string, s ...interface{}) {
-	log.Printf("[\u001B[33mdebug\u001B[0m] "+f, s)
+	log.Printf("[\u001B[32mg2cache\u001B[0m] [\u001B[33mdebug\u001B[0m] "+f, s)
 }
 
 func (l *sysLogger) LogErr(s ...interface{}) {
-	log.Println("[\u001B[31merr\u001B[0m] ", s)
+	log.Println("[\u001B[32mg2cache\u001B[0m] [\u001B[31merr\u001B[0m] ", s)
 }
 
 func (l *sysLogger) LogErrF(f string, s ...interface{}) {
-	log.Printf("[\u001B[31merr\u001B[0m] "+f, s)
+	log.Printf("[\u001B[32mg2cache\u001B[0m] [\u001B[31merr\u001B[0m] "+f, s)
 }

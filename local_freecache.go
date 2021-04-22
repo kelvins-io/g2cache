@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	DefaultFreeCacheSize = 50 * 1024 * 1024 // 100MB
+	DefaultFreeCacheSize = 50 * 1024 * 1024 // 50MB
 )
 
 type FreeCache struct {
