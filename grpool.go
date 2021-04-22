@@ -168,24 +168,29 @@ func (p *Pool) monitor() {
 
 func (p *Pool) release() {
 	close(p.stopped)
-	forceExit := make(chan struct{})
+	force := make(chan struct{})
+	forceOne := sync.Once{}
 	go func() {
 		for {
 			select {
-			case <-forceExit:
+			case <-force:
 				return
 			default:
 				p.wg.Wait() // why always some goroutine not exit,who found bug
-				close(forceExit)
+				forceOne.Do(func() {
+					close(force)
+				})
 				return
 			}
 		}
 	}()
 	// forceExit
 	time.AfterFunc(5*time.Second, func() {
-		close(forceExit)
+		forceOne.Do(func() {
+			close(force)
+		})
 	})
-	<-forceExit
+	<-force
 	close(p.JobQueue)
 }
 
