@@ -176,6 +176,8 @@ func (p *Pool) release() {
 				return
 			default:
 				p.wg.Wait() // why always some goroutine not exit,who found bug
+				close(forceExit)
+				return
 			}
 		}
 	}()

@@ -26,7 +26,7 @@ func main() {
 	g2cache.DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 	g2cache.DefaultRedisConf.DSN = "127.0.0.1:6379"
 	g2cache.DefaultRedisConf.DB = 1
-	g2cache.DefaultRedisConf.Pwd = "07030501310"
+	g2cache.DefaultRedisConf.Pwd = ""
 	g2cache.DefaultRedisConf.MaxConn = 30
 	g2 := g2cache.New(nil, nil)
 	go func() {
