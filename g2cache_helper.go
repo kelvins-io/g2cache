@@ -18,6 +18,7 @@ var (
 	OutStorageClose         = errors.New("out storage close !!! ")
 	CacheClose              = errors.New("g2cache close !!! ")
 	DataSourceLoadNil       = errors.New("data source load nil")
+	OutStorageLoadNil       = errors.New("out storage load nil")
 	CacheNotImplementPubSub = errors.New("cache not implement pubsub interface")
 )
 

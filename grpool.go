@@ -4,100 +4,80 @@ package g2cache
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Gorouting instance which can accept client jobs
 type worker struct {
-	workerPool chan *worker
+	id         int64
 	jobChannel chan Job
-	stop       chan struct{}
+	pool       *Pool
 }
 
 func (w *worker) start() {
 	go func() {
-		var job Job
+		if CacheDebug {
+			log.Printf("[%d] gpool.worker start\n", w.id)
+		}
+		defer func() {
+			w.pool.wg.Done()
+		}()
 		for {
-			// worker free, add it to pool
-			w.workerPool <- w
 			select {
-			case job = <-w.jobChannel:
-				runJob(job)
-			case <-w.stop:
-				w.stop <- struct{}{}
+			case <-w.pool.stopped:
+				if CacheDebug {
+					log.Printf("[%d] gpool.worker <-stop\n", w.id)
+				}
+				if len(w.jobChannel) != 0 {
+					for job := range w.jobChannel {
+						runJob(w.id, job)
+					}
+				}
+				if CacheDebug {
+					log.Printf("[%d] gpool.worker exit\n", w.id)
+				}
 				return
+			case job, ok := <-w.jobChannel:
+				if ok {
+					runJob(w.id, job)
+				}
 			}
 		}
 	}()
 }
 
-func runJob(f func()) {
+func runJob(id int64, f func()) {
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("Job panic err: %v", err)
+			if CacheDebug {
+				log.Printf("[%d] Job panic err: %v\n", id, err)
+			}
 		}
 	}()
 	f()
 }
 
-func newWorker(pool chan *worker) *worker {
-	return &worker{
-		workerPool: pool,
-		jobChannel: make(chan Job),
-		stop:       make(chan struct{}),
+func newWorker(id int64, pool *Pool, jobChannel chan Job) *worker {
+	w := &worker{
+		id:         id,
+		jobChannel: jobChannel,
+		pool:       pool,
 	}
-}
-
-// Accepts jobs from clients, and waits for first free worker to deliver job
-type dispatcher struct {
-	workerPool chan *worker
-	jobQueue   chan Job
-	stop       chan struct{}
-}
-
-func (d *dispatcher) dispatch() {
-	for {
-		select {
-		case job := <-d.jobQueue:
-			worker := <-d.workerPool
-			worker.jobChannel <- job
-		case <-d.stop:
-			for i := 0; i < cap(d.workerPool); i++ {
-				worker := <-d.workerPool
-
-				worker.stop <- struct{}{}
-				<-worker.stop
-			}
-
-			d.stop <- struct{}{}
-			return
-		}
-	}
-}
-
-func newDispatcher(workerPool chan *worker, jobQueue chan Job) *dispatcher {
-	d := &dispatcher{
-		workerPool: workerPool,
-		jobQueue:   jobQueue,
-		stop:       make(chan struct{}),
-	}
-
-	for i := 0; i < cap(d.workerPool); i++ {
-		worker := newWorker(d.workerPool)
-		worker.start()
-	}
-
-	go d.dispatch()
-	return d
+	w.start()
+	return w
 }
 
 // Represents user request, function which should be executed in some worker.
 type Job func()
 
 type Pool struct {
-	JobQueue   chan Job
-	dispatcher *dispatcher
-	wg         sync.WaitGroup
+	jobTotal int64
+	JobQueue chan Job
+	workers  []*worker
+	stopOne  sync.Once
+	stopped  chan struct{}
+	wg       sync.WaitGroup
 }
 
 // Will make pool of gorouting workers.
@@ -107,11 +87,21 @@ type Pool struct {
 // Returned object contains JobQueue reference, which you can use to send job to pool.
 func NewPool(numWorkers int, jobQueueLen int) *Pool {
 	jobQueue := make(chan Job, jobQueueLen)
-	workerPool := make(chan *worker, numWorkers)
 
 	pool := &Pool{
-		JobQueue:   jobQueue,
-		dispatcher: newDispatcher(workerPool, jobQueue),
+		JobQueue: jobQueue,
+		workers:  make([]*worker, numWorkers),
+		stopped:  make(chan struct{}),
+	}
+
+	for i := 0; i < numWorkers; i++ {
+		pool.wg.Add(1)
+		pool.workers[i] = newWorker(int64(i), pool, jobQueue)
+	}
+
+	if CacheDebug {
+		pool.wg.Add(1)
+		go pool.monitor()
 	}
 
 	return pool
@@ -119,17 +109,21 @@ func NewPool(numWorkers int, jobQueueLen int) *Pool {
 
 func (p *Pool) wrapJob(job func()) func() {
 	return func() {
-		defer p.JobDone()
+		defer func() {
+			atomic.AddInt64(&p.jobTotal, -1)
+		}()
 		job()
 	}
 }
 
 func (p *Pool) SendJobWithTimeout(job func(), t time.Duration) bool {
 	select {
+	case <-p.stopped:
+		return false
 	case <-time.After(t):
 		return false
 	case p.JobQueue <- p.wrapJob(job):
-		p.WaitCount(1)
+		atomic.AddInt64(&p.jobTotal, 1)
 		return true
 	}
 }
@@ -140,40 +134,60 @@ func (p *Pool) SendJobWithDeadline(job func(), t time.Time) bool {
 		s = time.Second // timeout
 	}
 	select {
+	case <-p.stopped:
+		return false
 	case <-time.After(s):
 		return false
 	case p.JobQueue <- p.wrapJob(job):
-		p.WaitCount(1)
+		atomic.AddInt64(&p.jobTotal, 1)
 		return true
 	}
 }
 
 func (p *Pool) SendJob(job func()) {
-	p.WaitCount(1)
-	p.JobQueue <- p.wrapJob(job)
+	select {
+	case p.JobQueue <- p.wrapJob(job):
+		atomic.AddInt64(&p.jobTotal, 1)
+	case <-p.stopped:
+		return
+	}
 }
 
-// In case you are using WaitAll fn, you should call this method
-// every time your job is done.
-//
-// If you are not using WaitAll then we assume you have your own way of synchronizing.
-func (p *Pool) JobDone() {
-	p.wg.Done()
+func (p *Pool) monitor() {
+	t := time.NewTicker(time.Duration(CacheMonitorSecond) * time.Second)
+	for {
+		select {
+		case <-p.stopped:
+			t.Stop()
+			return
+		case <-t.C:
+			log.Println("g pool jobTotal len ", atomic.LoadInt64(&p.jobTotal))
+		}
+	}
 }
 
-// How many jobs we should wait when calling WaitAll.
-// It is using WaitGroup Add/Done/Wait
-func (p *Pool) WaitCount(count int) {
-	p.wg.Add(count)
-}
-
-// Will wait for all jobs to finish.
-func (p *Pool) WaitAll() {
-	p.wg.Wait()
+func (p *Pool) release() {
+	close(p.stopped)
+	forceExit := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-forceExit:
+				return
+			default:
+				p.wg.Wait() // why always some goroutine not exit,who found bug
+			}
+		}
+	}()
+	// forceExit
+	time.AfterFunc(5*time.Second, func() {
+		close(forceExit)
+	})
+	<-forceExit
+	close(p.JobQueue)
 }
 
 // Will release resources used by pool
 func (p *Pool) Release() {
-	p.dispatcher.stop <- struct{}{}
-	<-p.dispatcher.stop
+	p.stopOne.Do(p.release)
 }

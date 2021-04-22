@@ -11,13 +11,17 @@ import (
 	"time"
 )
 
+var (
+	testTotal = math.MaxInt8
+)
+
 func main() {
 	g2cache.CacheDebug = true
-	g2cache.CacheMonitor = false
+	g2cache.CacheMonitor = true
 	g2cache.CacheMonitorSecond = 5
-	g2cache.EntryLazyFactor = 256
-	g2cache.DefaultGPoolWorkerNum = 5000
-	g2cache.DefaultGPoolJobQueueChanLen = 5000
+	g2cache.EntryLazyFactor = 10
+	g2cache.DefaultGPoolWorkerNum = 300
+	g2cache.DefaultGPoolJobQueueChanLen = 3000
 	g2cache.DefaultFreeCacheSize = 100 * 1024 * 1024 // 100MB
 	g2cache.DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 	g2cache.DefaultRedisConf.DSN = "127.0.0.1:6379"
@@ -35,7 +39,7 @@ func main() {
 			log.Println("server ", err)
 		}
 	}()
-	defer g2.Close()
+
 	wg := &sync.WaitGroup{}
 	wg.Add(20)
 	for i := 0; i < 10; i++ {
@@ -48,25 +52,25 @@ func main() {
 		go delKey(g2, wg)
 	}
 	wg.Wait()
+	g2.Close()
 }
 
 func delKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for i := 0; i < math.MaxInt16; i++ {
-		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxUint8))
+	for i := 0; i < testTotal; i++ {
+		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxInt8))
 		err := g2.Del(key, false)
 		if err != nil {
-			log.Println(err)
-			return
+			log.Fatalln(err)
 		}
-		time.Sleep(30 * time.Second)
+		time.Sleep(10 * time.Second)
 	}
 }
 
 func setKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for i := 0; i < math.MaxInt16; i++ {
-		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxUint8))
+	for i := 0; i < testTotal; i++ {
+		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxInt8))
 		obj := &Object{
 			ID:      i,
 			Value:   key,
@@ -78,17 +82,16 @@ func setKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 		}
 		err := g2.Set(key, obj, 30, true) // ttl is second
 		if err != nil {
-			log.Println(err)
-			return
+			log.Fatalln(err)
 		}
-		time.Sleep(15 * time.Second)
+		time.Sleep(7 * time.Second)
 	}
 }
 
 func getKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for i := 0; i < math.MaxInt16; i++ {
-		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxUint8))
+	for i := 0; i < testTotal; i++ {
+		key := g2cache.GenKey("g2cache-key", rand.Intn(math.MaxInt8))
 		var o Object
 		// ttl is second
 		err := g2.Get(key, 30, &o, func() (interface{}, error) {
@@ -104,8 +107,7 @@ func getKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 			}, nil
 		})
 		if err != nil {
-			log.Println(err)
-			return
+			log.Fatalln(err)
 		}
 		//out,err := jsoniter.MarshalToString(o)
 		//if err != nil {
@@ -113,7 +115,7 @@ func getKey(g2 *g2cache.G2Cache, wg *sync.WaitGroup) {
 		//	return
 		//}
 		//fmt.Printf("%s\n",out)
-		time.Sleep(990 * time.Millisecond)
+		time.Sleep(1 * time.Second)
 	}
 }
 

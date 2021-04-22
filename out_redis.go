@@ -53,6 +53,7 @@ func (r *RedisCache) Close() {
 
 func (r *RedisCache) close() {
 	close(r.stop)
+	r.pool.Close()
 }
 
 func (r *RedisCache) Set(key string, obj *Entry) error {
@@ -85,7 +86,7 @@ func (r *RedisCache) Subscribe(ch chan *ChannelMeta) error {
 
 	psc := redis.PubSubConn{Conn: conn}
 	if err := psc.Subscribe(DefaultPubSubRedisChannel); err != nil {
-		LogInf("rds subscribe key=%v, err=%v\n", DefaultPubSubRedisChannel, err)
+		LogErrF("rds subscribe key=%v, err=%v\n", DefaultPubSubRedisChannel, err)
 		return err
 	}
 
@@ -105,7 +106,7 @@ LOOP:
 			}
 			ch <- meta
 		case error:
-			LogInf("rds receive err, msg=%v\n", v)
+			LogErrF("rds receive err, msg=%v\n", v)
 			break LOOP
 		}
 	}

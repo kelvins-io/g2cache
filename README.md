@@ -51,7 +51,7 @@ type PubSub interface {
 ```
 
 
-LoadDataSourceFunc 原始数据加载函数，需要自行处理panic并以error形式返回    
+LoadDataSourceFunc 原始数据加载函数，请自行处理panic并以error形式返回    
 加载函数支持返回string，map，slice，struct，ptr类型   
 ```go
 // Shouldn't throw a panic, please return an error
@@ -59,6 +59,49 @@ type LoadDataSourceFunc func() (interface{}, error)
 
 ```
 
+缓存效果-初始   
+```markdown
+[G2CACHE] 2021/04/21 11:46:21 [debug] key:[[g2cache-key:61               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:21 [debug] key:[[g2cache-key:222               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:21 [debug] key:[[g2cache-key:61                ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 11:46:21 [debug] key:[[g2cache-key:183                ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:83                ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:18                ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:103               ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:90                ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:170               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:101               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:22 [debug] key:[[g2cache-key:165               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 11:46:23 [debug] statistics [local] hit percentage [[5.8824]]
+[G2CACHE] 2021/04/21 11:46:23 [debug] statistics [out] hit percentage [[1.9608]]
+[G2CACHE] 2021/04/21 11:46:23 [debug] statistics [data source] hit percentage [[90.1961]]
+```
+缓存效果-N分钟后   
+```markdown
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:106               ]] => [ hit out storage ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:136               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:100               ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:219               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:13                ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:200               ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] key:[[g2cache-key:172               ]] => [ hit data source ]
+[G2CACHE] 2021/04/21 12:26:53 [debug] statistics [local] hit percentage [[45.3865]]
+[G2CACHE] 2021/04/21 12:26:53 [debug] statistics [out] hit percentage [[6.7332]]
+[G2CACHE] 2021/04/21 12:26:53 [debug] statistics [data source] hit percentage [[48.1297]]
+
+```
+缓存效果-N+M分钟后   
+```markdown
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:2                 ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:2                 ]] => [ hit out storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:113               ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:113               ]] => [ hit out storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:43                ]] => [ hit local storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] key:[[g2cache-key:43                ]] => [ hit out storage ]
+[G2CACHE] 2021/04/21 13:18:53 [debug] statistics [local] hit percentage [[82.3877]]
+[G2CACHE] 2021/04/21 13:18:53 [debug] statistics [out] hit percentage [[16.2689]]
+[G2CACHE] 2021/04/21 13:18:53 [debug] statistics [data source] hit percentage [[1.3641]]
+```
 
 Usage   
 go get gitee.com/kelvins-io/g2cache   
