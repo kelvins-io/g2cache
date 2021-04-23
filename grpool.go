@@ -9,9 +9,8 @@ import (
 
 // Gorouting instance which can accept client jobs
 type worker struct {
-	id         int64
-	jobChannel chan Job
-	pool       *Pool
+	id   int64
+	pool *Pool
 }
 
 func (w *worker) start() {
@@ -28,8 +27,8 @@ func (w *worker) start() {
 				if CacheDebug {
 					LogDebugF("Pool [%d] worker <-stop\n", w.id)
 				}
-				if len(w.jobChannel) != 0 {
-					for job := range w.jobChannel {
+				if len(w.pool.JobQueue) != 0 {
+					for job := range w.pool.JobQueue {
 						runJob(w.id, job)
 					}
 				}
@@ -37,7 +36,7 @@ func (w *worker) start() {
 					LogDebugF("Pool [%d] worker exit\n", w.id)
 				}
 				return
-			case job, ok := <-w.jobChannel:
+			case job, ok := <-w.pool.JobQueue:
 				if ok {
 					runJob(w.id, job)
 				}
@@ -57,11 +56,10 @@ func runJob(id int64, f func()) {
 	f()
 }
 
-func newWorker(id int64, pool *Pool, jobChannel chan Job) *worker {
+func newWorker(id int64, pool *Pool) *worker {
 	w := &worker{
-		id:         id,
-		jobChannel: jobChannel,
-		pool:       pool,
+		id:   id,
+		pool: pool,
 	}
 	w.start()
 	return w
@@ -85,17 +83,16 @@ type Pool struct {
 //
 // Returned object contains JobQueue reference, which you can use to send job to pool.
 func NewPool(numWorkers int, jobQueueLen int) *Pool {
-	jobQueue := make(chan Job, jobQueueLen)
 
 	pool := &Pool{
-		JobQueue: jobQueue,
+		JobQueue: make(chan Job, jobQueueLen),
 		workers:  make([]*worker, numWorkers),
 		stopped:  make(chan struct{}),
 	}
 
 	for i := 0; i < numWorkers; i++ {
 		pool.wg.Add(1)
-		pool.workers[i] = newWorker(int64(i), pool, jobQueue)
+		pool.workers[i] = newWorker(int64(i), pool)
 	}
 
 	if CacheMonitor {
