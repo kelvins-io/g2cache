@@ -41,24 +41,28 @@ type G2Cache struct {
 	gPool    *Pool
 }
 
-func New(out OutCache, local LocalCache) *G2Cache {
+func New(out OutCache, local LocalCache) (g *G2Cache, err error) {
+	if local == nil {
+		local = NewFreeCache()
+	}
+	if out == nil {
+		out, err = NewRedisCache()
+		if err != nil {
+			return nil, fmt.Errorf("NewRedisCache err: %v", err)
+		}
+	}
+
 	gid, err := NewUUID()
 	if err != nil {
-		panic(fmt.Sprintf("gen gid err :%v", err))
+		return nil, fmt.Errorf("gen G2Cache.gid err :%v", err)
 	}
 	LogInfo("[g2cache.gid] = ", gid)
-	g := &G2Cache{
+	g = &G2Cache{
 		GID:     gid,
 		hash:    new(fnv64a),
 		stop:    make(chan struct{}, 1),
 		channel: make(chan *ChannelMeta, defaultShards),
 		gPool:   NewPool(DefaultGPoolWorkerNum, DefaultGPoolJobQueueChanLen),
-	}
-	if local == nil {
-		local = NewFreeCache()
-	}
-	if out == nil {
-		out = NewRedisCache()
 	}
 	g.local = local
 	g.out = out
@@ -74,7 +78,7 @@ func New(out OutCache, local LocalCache) *G2Cache {
 		g.gPool.SendJob(g.monitor)
 	}
 
-	return g
+	return g, nil
 }
 
 func (g *G2Cache) monitor() {
@@ -421,11 +425,21 @@ func (g *G2Cache) subscribeInternal() error {
 }
 
 func (g *G2Cache) close() {
-	close(g.stop)
-	g.out.Close()
-	g.local.Close()
-	close(g.channel)
-	g.gPool.Release()
+	if g.stop != nil {
+		close(g.stop)
+	}
+	if g.out != nil {
+		g.out.Close()
+	}
+	if g.out != nil {
+		g.local.Close()
+	}
+	if g.channel != nil {
+		close(g.channel)
+	}
+	if g.gPool != nil {
+		g.gPool.Release()
+	}
 }
 
 func (g *G2Cache) Close() {

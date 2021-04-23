@@ -29,7 +29,11 @@ func main() {
 	g2cache.DefaultRedisConf.DB = 1
 	g2cache.DefaultRedisConf.Pwd = ""
 	g2cache.DefaultRedisConf.MaxConn = 30
-	g2 := g2cache.New(nil, nil)
+	g2,err := g2cache.New(nil, nil)
+	if err != nil {
+		log.Println("g2cache New",err)
+		return
+	}
 	go func() {
 		http.HandleFunc("/statics", func(writer http.ResponseWriter, request *http.Request) {
 			m := g2cache.HitStatisticsOut.String()

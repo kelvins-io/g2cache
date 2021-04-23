@@ -57,7 +57,7 @@ func getRedisConn(pool *redis.Pool) (redis.Conn, error) {
 	return conn, nil
 }
 
-func GetRedisPool(conf *RedisConf) *redis.Pool {
+func GetRedisPool(conf *RedisConf) (*redis.Pool,error) {
 	pool := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", conf.DSN)
@@ -66,13 +66,19 @@ func GetRedisPool(conf *RedisConf) *redis.Pool {
 			}
 			if conf.Pwd != "" {
 				if _, err := c.Do("AUTH", conf.Pwd); err != nil {
-					err = c.Close()
+					errC := c.Close()
+					if errC != nil {
+						return nil, errC
+					}
 					return nil, err
 				}
 			}
 			if conf.DB > 0 {
 				if _, err := c.Do("SELECT", conf.DB); err != nil {
-					err = c.Close()
+					errC := c.Close()
+					if errC != nil {
+						return nil, errC
+					}
 					return nil, err
 				}
 			}
@@ -88,5 +94,16 @@ func GetRedisPool(conf *RedisConf) *redis.Pool {
 		Wait:            true,
 		MaxConnLifetime: 30 * time.Minute,
 	}
-	return pool
+
+	//ping
+	conn, err := pool.Dial()
+	if err != nil {
+		return nil, err
+	}
+	err = pool.TestOnBorrow(conn, time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	return pool, nil
 }

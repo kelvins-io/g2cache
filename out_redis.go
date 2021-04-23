@@ -27,12 +27,16 @@ type RedisConf struct {
 	MaxConn int
 }
 
-func NewRedisCache() *RedisCache {
+func NewRedisCache() (*RedisCache,error) {
+	pool,err := GetRedisPool(&DefaultRedisConf)
+	if err != nil {
+		return nil,err
+	}
 	c := &RedisCache{
-		pool:  GetRedisPool(&DefaultRedisConf),
+		pool:  pool,
 		stop:  make(chan struct{}, 1),
 	}
-	return c
+	return c, nil
 }
 
 func (r *RedisCache) Del(key string) error {
