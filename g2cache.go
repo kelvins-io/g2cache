@@ -200,7 +200,7 @@ func (g *G2Cache) syncLocalCache(key string, ttlSecond int, obj interface{}, fn 
 				return
 			}
 			pubsub, ok := g.out.(PubSub)
-			if ok {
+			if ok && OutCachePubSub {
 				_err = pubsub.Publish(g.GID, key, SetPublishType, e)
 				if _err != nil {
 					LogErr("syncLocalCache Publish err:", err)
@@ -245,7 +245,7 @@ func (g *G2Cache) syncOutCache(key string, ttlSecond int, fn LoadDataSourceFunc)
 			return
 		}
 		pubsub, ok := g.out.(PubSub)
-		if ok {
+		if ok && OutCachePubSub {
 			_err = pubsub.Publish(g.GID, key, SetPublishType, e)
 			if _err != nil {
 				eS, _ := jsoniter.MarshalToString(e)
@@ -313,7 +313,7 @@ func (g *G2Cache) setInternal(key string, e *Entry) (err error) {
 		return err
 	}
 	pubsub, ok := g.out.(PubSub)
-	if ok {
+	if ok && OutCachePubSub {
 		return pubsub.Publish(g.GID, key, SetPublishType, e)
 	}
 	return nil
@@ -356,7 +356,7 @@ func (g *G2Cache) delInternal(key string) (err error) {
 		return err
 	}
 	pubsub, ok := g.out.(PubSub)
-	if ok {
+	if ok && OutCachePubSub {
 		return pubsub.Publish(g.GID, key, DelPublishType, nil)
 	}
 	return err
