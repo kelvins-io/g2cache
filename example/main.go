@@ -19,6 +19,7 @@ func main() {
 	g2cache.CacheDebug = true
 	g2cache.CacheMonitor = true
 	g2cache.CacheMonitorSecond = 5
+	g2cache.OutCachePubSub = false
 	g2cache.EntryLazyFactor = 10
 	g2cache.DefaultGPoolWorkerNum = 300
 	g2cache.DefaultGPoolJobQueueChanLen = 3000

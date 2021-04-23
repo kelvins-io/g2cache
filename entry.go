@@ -11,7 +11,7 @@ var (
 
 type Entry struct {
 	Value      interface{} `json:"value"`
-	Ttl        int         `json:"ttl"`
+	TtlSecond  int         `json:"ttl"`
 	Obsolete   int64       `json:"obsolete"`
 	Expiration int64       `json:"expiration"`
 }
@@ -27,6 +27,10 @@ func (e *Entry) Obsoleted() bool {
 	return false
 }
 
+func (e *Entry) GetObsoleteTTL() (second int64) {
+	return (e.Obsolete - time.Now().UnixNano()) / int64(time.Second)
+}
+
 // Expired means that the data is unavailable and data needs to be synchronized
 func (e *Entry) Expired() bool {
 	if e.Expiration <= 0 {
@@ -38,21 +42,25 @@ func (e *Entry) Expired() bool {
 	return false
 }
 
+func (e *Entry) GetExpireTTL() (second int64) {
+	return (e.Expiration - time.Now().UnixNano()) / int64(time.Second)
+}
+
 func (e *Entry) String() string {
 	s, _ := jsoniter.MarshalToString(e.Value)
 	return s
 }
 
-func NewEntry(v interface{}, d int) *Entry {
-	ttl := d
+func NewEntry(v interface{}, second int) *Entry {
+	ttl := second
 	var od, e int64
-	if d > 0 {
-		od = time.Now().Add(time.Duration(d) * time.Second).UnixNano()
-		e = time.Now().Add(time.Duration(d*EntryLazyFactor) * time.Second).UnixNano()
+	if second > 0 {
+		od = time.Now().Add(time.Duration(second) * time.Second).UnixNano()
+		e = time.Now().Add(time.Duration(second*EntryLazyFactor) * time.Second).UnixNano()
 	}
 	return &Entry{
 		Value:      v,
-		Ttl:        ttl,
+		TtlSecond:  ttl,
 		Obsolete:   od,
 		Expiration: e,
 	}

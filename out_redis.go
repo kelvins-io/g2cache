@@ -4,7 +4,6 @@ import (
 	"github.com/gomodule/redigo/redis"
 	jsoniter "github.com/json-iterator/go"
 	"sync"
-	"time"
 )
 
 var DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
@@ -17,7 +16,6 @@ func init() {
 
 type RedisCache struct {
 	pool     *redis.Pool
-	local    LocalCache
 	stop     chan struct{}
 	stopOnce sync.Once
 }
@@ -29,10 +27,9 @@ type RedisConf struct {
 	MaxConn int
 }
 
-func NewRedisCache(local LocalCache) *RedisCache {
+func NewRedisCache() *RedisCache {
 	c := &RedisCache{
 		pool:  GetRedisPool(&DefaultRedisConf),
-		local: local,
 		stop:  make(chan struct{}, 1),
 	}
 	return c
@@ -67,7 +64,7 @@ func (r *RedisCache) Set(key string, obj *Entry) error {
 		return err
 	}
 	// out storage should set Expiration time
-	rdsTtl := (obj.Expiration - time.Now().UnixNano()) / int64(time.Second)
+	rdsTtl := obj.GetExpireTTL()
 	return RedisSetString(key, str, int(rdsTtl), r.pool)
 }
 
@@ -102,15 +99,15 @@ LOOP:
 			meta := &ChannelMeta{}
 			err := jsoniter.Unmarshal(v.Data, meta)
 			if err != nil || meta.Key == "" {
+				LogErrF("rds Subscribe Unmarshal data: %+v,err:%v",v.Data,err)
 				continue
 			}
 			ch <- meta
 		case error:
-			LogErrF("rds receive err, msg=%v\n", v)
+			LogErrF("rds receive error, msg=%v\n", v)
 			break LOOP
 		}
 	}
-	close(ch)
 	return nil
 }
 
@@ -121,16 +118,20 @@ func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	default:
 	}
 	str, err := RedisGetString(key, r.pool)
-	if err != nil && err != redis.ErrNil {
-		return nil, false, nil
+	if err != nil  {
+		if err == redis.ErrNil {
+			return nil, false, nil
+		}
+		return nil, false, err
 	}
 	if str == "" {
 		return nil, false, nil
 	}
 	var e Entry
 	e.Value = obj // Save the reflection structure of obj
-	if jsoniter.UnmarshalFromString(str, &e) != nil {
-		return nil, false, nil
+	err = jsoniter.UnmarshalFromString(str, &e)
+	if err != nil {
+		return nil, false, err
 	}
 
 	return &e, true, err

@@ -14,6 +14,9 @@ import (
 )
 
 var (
+	CacheKeyEmpty           = errors.New("cache key is empty")
+	CacheObjNil             = errors.New("cache object is nil")
+	LoadDataSourceFuncNil   = errors.New("cache load func is nil")
 	LocalStorageClose       = errors.New("local storage close !!! ")
 	OutStorageClose         = errors.New("out storage close !!! ")
 	CacheClose              = errors.New("g2cache close !!! ")

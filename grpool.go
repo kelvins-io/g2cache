@@ -2,7 +2,6 @@ package g2cache
 
 // thank https://github.com/ivpusic/grpool
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +17,7 @@ type worker struct {
 func (w *worker) start() {
 	go func() {
 		if CacheDebug {
-			log.Printf("[%d] gpool.worker start\n", w.id)
+			LogDebugF("Pool [%d] worker start\n", w.id)
 		}
 		defer func() {
 			w.pool.wg.Done()
@@ -27,7 +26,7 @@ func (w *worker) start() {
 			select {
 			case <-w.pool.stopped:
 				if CacheDebug {
-					log.Printf("[%d] gpool.worker <-stop\n", w.id)
+					LogDebugF("Pool [%d] worker <-stop\n", w.id)
 				}
 				if len(w.jobChannel) != 0 {
 					for job := range w.jobChannel {
@@ -35,7 +34,7 @@ func (w *worker) start() {
 					}
 				}
 				if CacheDebug {
-					log.Printf("[%d] gpool.worker exit\n", w.id)
+					LogDebugF("Pool [%d] worker exit\n", w.id)
 				}
 				return
 			case job, ok := <-w.jobChannel:
@@ -51,7 +50,7 @@ func runJob(id int64, f func()) {
 	defer func() {
 		if err := recover(); err != nil {
 			if CacheDebug {
-				log.Printf("[%d] Job panic err: %v\n", id, err)
+				LogErrF("Pool [%d] Job panic err: %v\n", id, err)
 			}
 		}
 	}()
@@ -161,7 +160,7 @@ func (p *Pool) monitor() {
 			t.Stop()
 			return
 		case <-t.C:
-			log.Println("g pool jobTotal len ", atomic.LoadInt64(&p.jobTotal))
+			LogDebug("Pool jobTotal current num ", atomic.LoadInt64(&p.jobTotal))
 		}
 	}
 }

@@ -4,7 +4,6 @@ import (
 	"github.com/coocood/freecache"
 	jsoniter "github.com/json-iterator/go"
 	"sync"
-	"time"
 )
 
 var (
@@ -33,7 +32,7 @@ func (c *FreeCache) Set(key string, e *Entry) error {
 	}
 	s, _ := jsoniter.Marshal(e)
 	// local storage should set Obsolete time
-	obsolete := (e.Obsolete - time.Now().UnixNano()) / int64(time.Second)
+	obsolete := e.GetObsoleteTTL()
 	return c.storage.Set([]byte(key), s, int(obsolete))
 }
 
