@@ -123,4 +123,8 @@ go run main.go
 4.  新建 Pull Request
 
 #### 合作交流
+QQ群：   
+[![g2cache](g2cache交流群.JPG)](https://gitee.com/kelvins-io)   
+
+邮箱：
 1225807605@qq.com
