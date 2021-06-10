@@ -103,10 +103,12 @@ type LoadDataSourceFunc func() (interface{}, error)
 [G2CACHE] 2021/04/21 13:18:53 [debug] statistics [data source] hit percentage [[1.3641]]
 ```
 
-Usage   
-go get gitee.com/kelvins-io/g2cache   
-cd example   
-go run main.go
+### Usage   
+go get -u gitee.com/kelvins-io/g2cache@v4.0.3   
+
+#### 模拟测试
+修改example/main.go中Redis的配置   
+sh example-run.sh   
 
 #### 分支说明
 
