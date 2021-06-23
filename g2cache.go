@@ -376,7 +376,7 @@ func (g *G2Cache) subscribe() error {
 func (g *G2Cache) subscribeHandle() error {
 	var err error
 	for ele := range g.channel {
-		meta := *ele
+		meta := *ele // for range pointer please to do
 		select {
 		case <-g.stop:
 			return OutStorageClose
@@ -412,7 +412,6 @@ func (g *G2Cache) subscribeHandle() error {
 				}
 				continue
 			}
-			// for range pointer please to do
 			g.gPool.SendJob(func() {
 				if err = g.local.Set(meta.Key, meta.Data); err != nil {
 					dataS, _ := json.MarshalToString(meta.Data)
