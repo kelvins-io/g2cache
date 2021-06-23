@@ -2,7 +2,6 @@ package g2cache
 
 import (
 	"github.com/gomodule/redigo/redis"
-	jsoniter "github.com/json-iterator/go"
 	"sync"
 )
 
@@ -63,7 +62,7 @@ func (r *RedisCache) Set(key string, obj *Entry) error {
 		return OutStorageClose
 	default:
 	}
-	str, err := jsoniter.MarshalToString(obj)
+	str, err := json.MarshalToString(obj)
 	if err != nil {
 		return err
 	}
@@ -76,7 +75,7 @@ func (r *RedisCache) DistributedEnable() bool {
 	return true
 }
 
-func (r *RedisCache) Subscribe(ch chan *ChannelMeta) error {
+func (r *RedisCache) Subscribe(ch chan<- *ChannelMeta) error {
 	select {
 	case <-r.stop:
 		return OutStorageClose
@@ -87,8 +86,11 @@ func (r *RedisCache) Subscribe(ch chan *ChannelMeta) error {
 
 	psc := redis.PubSubConn{Conn: conn}
 	if err := psc.Subscribe(DefaultPubSubRedisChannel); err != nil {
-		LogErrF("rds subscribe key=%v, err=%v\n", DefaultPubSubRedisChannel, err)
+		LogErrF("rds subscribe channel=%v, err=%v\n", DefaultPubSubRedisChannel, err)
 		return err
+	}
+	if CacheDebug {
+		LogDebugF("rds subscribe channel=%v start ...\n",DefaultPubSubRedisChannel)
 	}
 
 LOOP:
@@ -101,14 +103,19 @@ LOOP:
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			meta := &ChannelMeta{}
-			err := jsoniter.Unmarshal(v.Data, meta)
+			err := json.Unmarshal(v.Data, meta)
 			if err != nil || meta.Key == "" {
-				LogErrF("rds Subscribe Unmarshal data: %+v,err:%v",v.Data,err)
+				LogErrF("rds subscribe Unmarshal data: %+v,err:%v\n",v.Data,err)
 				continue
+			}
+			select {
+			case <-r.stop:
+				return OutStorageClose
+			default:
 			}
 			ch <- meta
 		case error:
-			LogErrF("rds receive error, msg=%v\n", v)
+			LogErrF("rds subscribe receive error, msg=%v\n", v)
 			break LOOP
 		}
 	}
@@ -133,7 +140,7 @@ func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	}
 	var e Entry
 	e.Value = obj // Save the reflection structure of obj
-	err = jsoniter.UnmarshalFromString(str, &e)
+	err = json.UnmarshalFromString(str, &e)
 	if err != nil {
 		return nil, false, err
 	}
@@ -153,7 +160,7 @@ func (r *RedisCache) Publish(gid, key string, action int8, value *Entry) error {
 		Action: action,
 		Data:   value,
 	}
-	s, err := jsoniter.MarshalToString(meta)
+	s, err := json.MarshalToString(meta)
 	if err != nil {
 		return err
 	}

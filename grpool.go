@@ -2,8 +2,8 @@ package g2cache
 
 // thank https://github.com/ivpusic/grpool
 import (
+	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -27,8 +27,8 @@ func (w *worker) start() {
 				if CacheDebug {
 					LogDebugF("Pool [%d] worker <-stop\n", w.id)
 				}
-				if len(w.pool.JobQueue) != 0 {
-					for job := range w.pool.JobQueue {
+				if len(w.pool.jobQueue) != 0 {
+					for job := range w.pool.jobQueue {
 						runJob(w.id, job)
 					}
 				}
@@ -36,7 +36,7 @@ func (w *worker) start() {
 					LogDebugF("Pool [%d] worker exit\n", w.id)
 				}
 				return
-			case job, ok := <-w.pool.JobQueue:
+			case job, ok := <-w.pool.jobQueue:
 				if ok {
 					runJob(w.id, job)
 				}
@@ -49,12 +49,21 @@ func runJob(id int64, f func()) {
 	defer func() {
 		if err := recover(); err != nil {
 			if CacheDebug {
-				LogErrF("Pool [%d] Job panic err: %v\n", id, err)
+				LogErrF("Pool [%d] Job panic err: %v, stack: %v\n", id, err,string(outputStackErr()))
 			}
 		}
 	}()
 	f()
 }
+
+func outputStackErr() []byte  {
+	var (
+		buf    [4096]byte
+	)
+	n := runtime.Stack(buf[:], false)
+	return buf[:n]
+}
+
 
 func newWorker(id int64, pool *Pool) *worker {
 	w := &worker{
@@ -69,8 +78,7 @@ func newWorker(id int64, pool *Pool) *worker {
 type Job func()
 
 type Pool struct {
-	jobTotal int64
-	JobQueue chan Job
+	jobQueue chan Job
 	workers  []*worker
 	stopOne  sync.Once
 	stopped  chan struct{}
@@ -85,7 +93,7 @@ type Pool struct {
 func NewPool(numWorkers int, jobQueueLen int) *Pool {
 
 	pool := &Pool{
-		JobQueue: make(chan Job, jobQueueLen),
+		jobQueue: make(chan Job, jobQueueLen),
 		workers:  make([]*worker, numWorkers),
 		stopped:  make(chan struct{}),
 	}
@@ -104,12 +112,7 @@ func NewPool(numWorkers int, jobQueueLen int) *Pool {
 }
 
 func (p *Pool) wrapJob(job func()) func() {
-	return func() {
-		defer func() {
-			atomic.AddInt64(&p.jobTotal, -1)
-		}()
-		job()
-	}
+	return job
 }
 
 func (p *Pool) SendJobWithTimeout(job func(), t time.Duration) bool {
@@ -118,8 +121,7 @@ func (p *Pool) SendJobWithTimeout(job func(), t time.Duration) bool {
 		return false
 	case <-time.After(t):
 		return false
-	case p.JobQueue <- p.wrapJob(job):
-		atomic.AddInt64(&p.jobTotal, 1)
+	case p.jobQueue <- p.wrapJob(job):
 		return true
 	}
 }
@@ -134,16 +136,14 @@ func (p *Pool) SendJobWithDeadline(job func(), t time.Time) bool {
 		return false
 	case <-time.After(s):
 		return false
-	case p.JobQueue <- p.wrapJob(job):
-		atomic.AddInt64(&p.jobTotal, 1)
+	case p.jobQueue <- p.wrapJob(job):
 		return true
 	}
 }
 
 func (p *Pool) SendJob(job func()) {
 	select {
-	case p.JobQueue <- p.wrapJob(job):
-		atomic.AddInt64(&p.jobTotal, 1)
+	case p.jobQueue <- p.wrapJob(job):
 	case <-p.stopped:
 		return
 	}
@@ -157,7 +157,7 @@ func (p *Pool) monitor() {
 			t.Stop()
 			return
 		case <-t.C:
-			LogDebug("Pool jobTotal current num ", atomic.LoadInt64(&p.jobTotal))
+			LogDebug("Pool jobQueue current len ", len(p.jobQueue))
 		}
 	}
 }
@@ -187,7 +187,7 @@ func (p *Pool) release() {
 		})
 	})
 	<-force
-	close(p.JobQueue)
+	close(p.jobQueue)
 }
 
 // Will release resources used by pool
