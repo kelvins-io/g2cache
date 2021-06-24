@@ -1,22 +1,26 @@
 package g2cache
 
 import (
+	"fmt"
 	"github.com/gomodule/redigo/redis"
 	"sync"
 )
 
 var DefaultPubSubRedisChannel = "g2cache-pubsub-channel"
 var DefaultRedisConf RedisConf
+var DefaultPubSubRedisConf RedisConf
 
 func init() {
 	DefaultRedisConf.DSN = "127.0.0.1:6379"
 	DefaultRedisConf.MaxConn = 10
+	DefaultPubSubRedisConf = DefaultRedisConf
 }
 
 type RedisCache struct {
-	pool     *redis.Pool
-	stop     chan struct{}
-	stopOnce sync.Once
+	pool       *redis.Pool
+	pubsubPool *redis.Pool
+	stop       chan struct{}
+	stopOnce   sync.Once
 }
 
 type RedisConf struct {
@@ -26,14 +30,24 @@ type RedisConf struct {
 	MaxConn int
 }
 
-func NewRedisCache() (*RedisCache,error) {
-	pool,err := GetRedisPool(&DefaultRedisConf)
+func NewRedisCache() (*RedisCache, error) {
+	pool, err := GetRedisPool(&DefaultRedisConf)
 	if err != nil {
-		return nil,err
+		return nil, fmt.Errorf("redis pool init err %v", err)
 	}
+
+	var pubsubPool *redis.Pool
+	if OutCachePubSub {
+		pubsubPool, err = GetRedisPool(&DefaultPubSubRedisConf)
+		if err != nil {
+			return nil, fmt.Errorf("redis pubsubPool init err %v", err)
+		}
+	}
+
 	c := &RedisCache{
-		pool:  pool,
-		stop:  make(chan struct{}, 1),
+		pool:       pool,
+		pubsubPool: pubsubPool,
+		stop:       make(chan struct{}, 1),
 	}
 	return c, nil
 }
@@ -81,7 +95,7 @@ func (r *RedisCache) Subscribe(ch chan<- *ChannelMeta) error {
 		return OutStorageClose
 	default:
 	}
-	conn := r.pool.Get()
+	conn := r.pubsubPool.Get()
 	defer conn.Close()
 
 	psc := redis.PubSubConn{Conn: conn}
@@ -90,7 +104,7 @@ func (r *RedisCache) Subscribe(ch chan<- *ChannelMeta) error {
 		return err
 	}
 	if CacheDebug {
-		LogDebugF("rds subscribe channel=%v start ...\n",DefaultPubSubRedisChannel)
+		LogDebugF("rds subscribe channel=%v start ...\n", DefaultPubSubRedisChannel)
 	}
 
 LOOP:
@@ -105,7 +119,7 @@ LOOP:
 			meta := &ChannelMeta{}
 			err := json.Unmarshal(v.Data, meta)
 			if err != nil || meta.Key == "" {
-				LogErrF("rds subscribe Unmarshal data: %+v,err:%v\n",v.Data,err)
+				LogErrF("rds subscribe Unmarshal data: %+v,err:%v\n", v.Data, err)
 				continue
 			}
 			select {
@@ -129,7 +143,7 @@ func (r *RedisCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	default:
 	}
 	str, err := RedisGetString(key, r.pool)
-	if err != nil  {
+	if err != nil {
 		if err == redis.ErrNil {
 			return nil, false, nil
 		}
@@ -164,7 +178,7 @@ func (r *RedisCache) Publish(gid, key string, action int8, value *Entry) error {
 	if err != nil {
 		return err
 	}
-	return RedisPublish(DefaultPubSubRedisChannel, s, r.pool)
+	return RedisPublish(DefaultPubSubRedisChannel, s, r.pubsubPool)
 }
 
 func (r *RedisCache) ThreadSafe() {}

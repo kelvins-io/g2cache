@@ -32,6 +32,7 @@ func main() {
 	g2cache.DefaultRedisConf.DB = 1
 	g2cache.DefaultRedisConf.Pwd = ""
 	g2cache.DefaultRedisConf.MaxConn = 30
+	g2cache.DefaultPubSubRedisConf = g2cache.DefaultRedisConf
 	g2,err := g2cache.New(nil, nil)
 	if err != nil {
 		log.Println("g2cache New",err)
