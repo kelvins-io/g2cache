@@ -2,7 +2,6 @@ package g2cache
 
 import (
 	"github.com/coocood/freecache"
-	jsoniter "github.com/json-iterator/go"
 	"sync"
 )
 
@@ -30,7 +29,7 @@ func (c *FreeCache) Set(key string, e *Entry) error {
 		return LocalStorageClose
 	default:
 	}
-	s, _ := jsoniter.Marshal(e)
+	s, _ := json.Marshal(e)
 	// local storage should set Obsolete time
 	obsolete := e.GetObsoleteTTL()
 	return c.storage.Set([]byte(key), s, int(obsolete))
@@ -61,7 +60,7 @@ func (c *FreeCache) Get(key string, obj interface{}) (*Entry, bool, error) {
 	}
 	e := new(Entry)
 	e.Value = obj // Save the reflection structure of obj
-	err = jsoniter.Unmarshal(b, e)
+	err = json.Unmarshal(b, e)
 	if err != nil {
 		return nil, false, err
 	}

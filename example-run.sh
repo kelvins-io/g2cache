@@ -1,7 +1,10 @@
+rm -rf vendor
+rm -rf go.mod
+rm -rf go.sum
 go mod init
 go mod tidy
 go mod vendor
 cd ./example || exit
-echo "[g2cache.example] 使用默认的redis配置"
+rm -rf g2cache-example
 go build -o g2cache-example main.go
 ./g2cache-example

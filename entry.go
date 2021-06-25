@@ -21,14 +21,14 @@ func (e *Entry) Obsoleted() bool {
 	if e.Obsolete <= 0 {
 		return true
 	}
-	if e.Obsolete < time.Now().UnixNano() {
+	if e.Obsolete < time.Now().Unix() {
 		return true
 	}
 	return false
 }
 
 func (e *Entry) GetObsoleteTTL() (second int64) {
-	return (e.Obsolete - time.Now().UnixNano()) / int64(time.Second)
+	return e.Obsolete - time.Now().Unix()
 }
 
 // Expired means that the data is unavailable and data needs to be synchronized
@@ -36,14 +36,14 @@ func (e *Entry) Expired() bool {
 	if e.Expiration <= 0 {
 		return true
 	}
-	if e.Expiration < time.Now().UnixNano() {
+	if e.Expiration < time.Now().Unix() {
 		return true
 	}
 	return false
 }
 
 func (e *Entry) GetExpireTTL() (second int64) {
-	return (e.Expiration - time.Now().UnixNano()) / int64(time.Second)
+	return e.Expiration - time.Now().Unix()
 }
 
 func (e *Entry) String() string {
@@ -55,8 +55,8 @@ func NewEntry(v interface{}, second int) *Entry {
 	ttl := second
 	var od, e int64
 	if second > 0 {
-		od = time.Now().Add(time.Duration(second) * time.Second).UnixNano()
-		e = time.Now().Add(time.Duration(second*EntryLazyFactor) * time.Second).UnixNano()
+		od = time.Now().Add(time.Duration(second) * time.Second).Unix()
+		e = time.Now().Add(time.Duration(second*EntryLazyFactor) * time.Second).Unix()
 	}
 	return &Entry{
 		Value:      v,

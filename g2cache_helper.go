@@ -2,12 +2,10 @@ package g2cache
 
 import (
 	"bytes"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	jsoniter "github.com/json-iterator/go"
+	"github.com/google/uuid"
 	"github.com/mohae/deepcopy"
-	"math/rand"
 	"reflect"
 	"strconv"
 	"sync/atomic"
@@ -96,7 +94,7 @@ type HitStatistics struct {
 }
 
 func (h *HitStatistics) String() string {
-	v, _ := jsoniter.MarshalToString(h)
+	v, _ := json.MarshalToString(h)
 	return v
 }
 
@@ -118,29 +116,6 @@ func (h *HitStatistics) StatisticsLocalStorage() {
 	h.HitLocalStorageTotalRate = float64(atomic.LoadInt64(&h.HitLocalStorageTotal)) / float64(atomic.LoadInt64(&h.AccessGetTotal))
 }
 
-func encodeUUID(u []byte) string {
-	buf := make([]byte, 36)
-	hex.Encode(buf[0:8], u[0:4])
-	buf[8] = '-'
-	hex.Encode(buf[9:13], u[4:6])
-	buf[13] = '-'
-	hex.Encode(buf[14:18], u[6:8])
-	buf[18] = '-'
-	hex.Encode(buf[19:23], u[8:10])
-	buf[23] = '-'
-	hex.Encode(buf[24:], u[10:])
-	return string(buf)
-}
-
-// NewUUID create v4 uuid
-// More powerful UUID libraries can be used: https://github.com/google/uuid
 func NewUUID() (string, error) {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return encodeUUID(b), nil
+	return uuid.New().String(), nil
 }

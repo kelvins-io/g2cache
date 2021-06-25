@@ -25,9 +25,8 @@ var (
 	DefaultGPoolJobQueueChanLen = 1000
 )
 
-var (
-	HitStatisticsOut HitStatistics
-)
+var HitStatisticsOut HitStatistics
+var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
 type G2Cache struct {
 	GID      string // Identifies the number of an instance
@@ -252,7 +251,7 @@ func (g *G2Cache) syncOutCache(key string, ttlSecond int, fn LoadDataSourceFunc)
 		if ok && OutCachePubSub {
 			_err = pubsub.Publish(g.GID, key, SetPublishType, e)
 			if _err != nil {
-				eS, _ := jsoniter.MarshalToString(e)
+				eS, _ := json.MarshalToString(e)
 				LogErrF("syncOutCache key=%s,val=%s,err=%v\n", key, eS, err)
 			}
 		}
@@ -295,11 +294,10 @@ func (g *G2Cache) set(key string, obj interface{}, ttlSecond int, wait bool) (er
 	if wait {
 		return g.setInternal(key, v)
 	}
-
 	g.gPool.SendJob(func() {
 		_err := g.setInternal(key, v)
 		if _err != nil {
-			objS, _ := jsoniter.MarshalToString(v)
+			objS, _ := json.MarshalToString(v)
 			LogErrF("setInternal key: %s,obj: %s ,err: %v", key, objS, err)
 		}
 	})
@@ -375,17 +373,9 @@ func (g *G2Cache) subscribe() error {
 	return g.subscribeInternal()
 }
 
-func (g *G2Cache) subscribeInternal() error {
-	pubsub, ok := g.out.(PubSub)
-	if !ok {
-		return CacheNotImplementPubSub
-	}
-	err := pubsub.Subscribe(g.channel)
-	if err != nil {
-		return err
-	}
-
-	for meta := range g.channel {
+func (g *G2Cache) subscribeHandle() error {
+	for ele := range g.channel {
+		meta := *ele // for range pointer please to do
 		select {
 		case <-g.stop:
 			return OutStorageClose
@@ -394,31 +384,64 @@ func (g *G2Cache) subscribeInternal() error {
 		if meta.Gid == g.GID {
 			continue
 		}
-		key := meta.Key
+		if meta.Key == "" {
+			if CacheDebug {
+				LogDebugF("subscribeHandle receive meta.Key is null: %+v\n", meta)
+			}
+			continue
+		}
+		if CacheDebug {
+			metaDump, _ := json.MarshalToString(meta)
+			LogDebugF("subscribeHandle receive meta: %v\n", metaDump)
+		}
+
 		switch meta.Action {
 		case DelPublishType:
 			g.gPool.SendJob(func() {
-				if err = g.out.Del(key); err != nil {
-					LogErrF("out del key=%s, err=%v\n", key, err)
+				if err := g.out.Del(meta.Key); err != nil {
+					LogErrF("out del key=%s, err=%v\n", meta.Key, err)
 				}
-				if err := g.local.Del(key); err != nil {
-					LogErrF("local del key=%s, err=%v\n", key, err)
+				if err := g.local.Del(meta.Key); err != nil {
+					LogErrF("local del key=%s, err=%v\n", meta.Key, err)
 				}
 			})
 		case SetPublishType:
-			g.gPool.SendJob(func() {
-				if err = g.local.Set(meta.Key, meta.Data); err != nil {
-					dataS, _ := jsoniter.MarshalToString(meta.Data)
-					LogErrF("local set key=%s,val=%s, err=%v\n", key, dataS, err)
+			if meta.Data.Value == nil {
+				if CacheDebug {
+					LogDebugF("subscribeHandle receive meta.Data is nil: %+v\n", meta)
 				}
-				if err = g.out.Set(key, meta.Data); err != nil {
-					dataS, _ := jsoniter.MarshalToString(meta.Data)
-					LogErrF("out set key=%s,val=%s, err=%v\n", key, dataS, err)
+				continue
+			}
+			g.gPool.SendJob(func() {
+				if err := g.local.Set(meta.Key, meta.Data); err != nil {
+					dataS, _ := json.MarshalToString(meta.Data)
+					LogErrF("local set key=%s,val=%s, err=%v\n", meta.Key, dataS, err)
+				}
+				if err := g.out.Set(meta.Key, meta.Data); err != nil {
+					dataS, _ := json.MarshalToString(meta.Data)
+					LogErrF("out set key=%s,val=%s, err=%v\n", meta.Key, dataS, err)
 				}
 			})
 		default:
 			continue
 		}
+	}
+	return nil
+}
+
+func (g *G2Cache) subscribeInternal() error {
+	pubsub, ok := g.out.(PubSub)
+	if !ok {
+		return CacheNotImplementPubSub
+	}
+
+	g.gPool.SendJob(wrapFuncErr(func() error {
+		return g.subscribeHandle()
+	}))
+
+	err := pubsub.Subscribe(g.channel)
+	if err != nil {
+		return err
 	}
 
 	return nil

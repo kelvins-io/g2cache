@@ -20,7 +20,7 @@ type OutCache interface {
 
 // only out storage pub sub
 type PubSub interface {
-	Subscribe(data chan *ChannelMeta) error
+	Subscribe(data chan<- *ChannelMeta) error
 	Publish(gid, key string, action int8, data *Entry) error
 }
 
