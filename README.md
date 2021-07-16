@@ -104,7 +104,7 @@ type LoadDataSourceFunc func() (interface{}, error)
 ```
 
 ### Usage   
-go get -u gitee.com/kelvins-io/g2cache@v4.0.3   
+go get -u gitee.com/kelvins-io/g2cache@v4.0.5   
 
 #### 模拟测试
 修改example/main.go中Redis的配置   
